@@ -1,109 +1,86 @@
 <!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>VigiMap</title>
-  <link rel="manifest" href="manifest.json"/>
-  <meta name="theme-color" content="#161b22"/>
-  <link rel="icon" href="assets/icon.svg"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="src/ui/theme.css"/>
-  <link rel="stylesheet" href="src/ui/layout.css"/>
-  <link rel="stylesheet" href="src/ui/components.css"/>
-</head>
-<body>
-
+<html lang="fr"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VigiMap</title><link rel="manifest" href="manifest.json"/>
+<meta name="theme-color" content="#161b22"/>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="vendor/leaflet.css"/>
+<link rel="stylesheet" href="vendor/MarkerCluster.css"/>
+<link rel="stylesheet" href="vendor/MarkerCluster.Default.css"/>
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/leaflet.markercluster.js"></script>
+<script src="vendor/hls.min.js"></script>
+<script src="vendor/dexie.min.js"></script>
+<link rel="stylesheet" href="src/ui/theme.css"/>
+<link rel="stylesheet" href="src/ui/layout.css"/>
+<link rel="stylesheet" href="src/ui/components.css"/>
+</head><body>
+<div id="loading-bar" class="loading-bar" style="display:none"></div>
 <nav class="navbar">
-  <div class="navbar__brand">
-    <span class="navbar__logo">&#128065;</span>
-    <span class="navbar__title">VigiMap</span>
-  </div>
+  <div class="navbar__brand"><img src="assets/icon.svg" width="22" height="22" alt=""/>
+    <span>VigiMap</span><span class="badge--version">v2.0</span></div>
   <div class="navbar__actions">
-    <button class="btn btn--ghost" id="btn-sources"><span class="icon">&#128225;</span><span class="label">Sources</span></button>
-    <button class="btn btn--ghost" id="btn-logs"><span class="icon">&#128203;</span><span class="label">Logs</span></button>
-    <button class="btn btn--ghost" id="btn-settings">&#9881;&#65039;</button>
+    <button class="btn btn--ghost btn--sm" id="btn-sources">Sources</button>
+    <button class="btn btn--ghost btn--sm" id="btn-queries">Requetes CV</button>
+    <button class="btn btn--ghost btn--sm" id="btn-logs">Logs</button>
+    <button class="btn btn--ghost btn--sm" id="btn-cv-toggle" data-on="0">CV On</button>
+    <button class="btn btn--ghost btn--sm" id="btn-settings">&#9881;</button>
   </div>
 </nav>
-
-<main class="main-layout" id="main-layout">
-  <section class="map-panel" id="map-panel">
+<div class="app-layout">
+  <div id="map-panel" class="map-panel">
+    <div class="map-toolbar">
+      <select class="select-sm" id="filter-source"><option value="">Toutes sources</option></select>
+      <select class="select-sm" id="filter-status"><option value="">Tous statuts</option><option value="live">Live</option><option value="delayed">Differe</option><option value="offline">Hors ligne</option></select>
+      <select class="select-sm" id="filter-country"><option value="">Tous pays</option></select>
+      <button class="btn btn--ghost btn--sm" id="btn-refresh">&#8635; Actualiser</button>
+    </div>
     <div id="map"></div>
-    <div class="map-legend">
-      <span class="legend-item live">&#9679; Live</span>
-      <span class="legend-item delayed">&#9679; Differe</span>
-      <span class="legend-item offline">&#9679; Hors ligne</span>
-      <span class="legend-item pinned">&#9679; Epingle</span>
-      <span class="legend-item match">&#9679; Match</span>
-    </div>
-    <div class="map-filters">
-      <select id="filter-source" class="select-sm"><option value="">Toutes sources</option></select>
-      <select id="filter-status" class="select-sm">
-        <option value="">Tous statuts</option>
-        <option value="live">Live</option>
-        <option value="delayed">Differe</option>
-        <option value="offline">Hors ligne</option>
-      </select>
-      <select id="filter-country" class="select-sm"><option value="">Tous pays</option></select>
-      <button class="btn btn--sm btn--primary" id="btn-refresh">&#128260; Rafraichir</button>
-    </div>
-  </section>
-
-  <aside class="side-panel" id="side-panel">
-    <div class="player-section">
-      <div class="player-section__header">
-        <span>Flux epingles (<span id="pinned-count">0</span>)</span>
-        <select id="grid-layout" class="select-sm">
-          <option value="auto">Auto</option>
-          <option value="1">1x1</option>
-          <option value="2">2x2</option>
-          <option value="3">3x3</option>
-          <option value="4">4x4</option>
-        </select>
-      </div>
-      <div class="player-grid" id="player-grid">
-        <p class="player-empty">Cliquez sur une camera sur la carte pour l'epingler</p>
-      </div>
-    </div>
-    <div class="log-section">
-      <div class="log-section__header" id="log-toggle">
-        <span>Logs (<span id="log-count">0</span>)</span>
-        <div>
-          <span id="log-size" class="log-size">0 Mo / 100 Mo</span>
-          <button class="btn btn--sm btn--ghost" id="btn-export-logs">&#11015; Export</button>
-          <button class="btn btn--sm btn--ghost" id="btn-clear-logs">&#128465;</button>
-        </div>
-      </div>
-      <div class="log-list" id="log-list"></div>
-    </div>
-  </aside>
-</main>
-
-<nav class="mobile-nav">
-  <button class="mobile-nav__btn active" data-tab="map">&#128506; Carte</button>
-  <button class="mobile-nav__btn" data-tab="streams">&#127909; Flux</button>
-  <button class="mobile-nav__btn" data-tab="logs">&#128203; Logs</button>
-</nav>
-
-<div class="camera-popup hidden" id="camera-popup">
-  <div class="camera-popup__inner" id="camera-popup-inner"></div>
-</div>
-
-<div class="panel-overlay hidden" id="panel-overlay"></div>
-<div class="settings-panel hidden" id="settings-panel">
-  <div class="settings-panel__header">
-    <h2>Parametres</h2>
-    <button class="btn btn--ghost" id="btn-close-settings">&#10005;</button>
   </div>
-  <div class="settings-panel__body" id="settings-body"></div>
+  <div id="side-panel" class="side-panel">
+    <div class="side-panel__header"><span>Flux epingles (<span id="pinned-count">0</span>)</span>
+      <select class="select-sm" id="grid-layout"><option value="auto">Auto</option><option value="1">1x1</option><option value="2">2x1</option><option value="3">3x2</option><option value="4">4x3</option></select>
+    </div>
+    <div id="player-grid" class="player-grid"><p class="player-empty">Cliquez sur une camera pour l'epingler</p></div>
+    <div id="query-panel" class="query-panel hidden">
+      <div class="panel-header"><span>Requetes CV</span><button class="btn btn--primary btn--sm" id="btn-add-query">+ Nouvelle</button></div>
+      <div id="query-list"></div>
+    </div>
+    <div id="log-panel-side" class="log-panel hidden">
+      <div class="panel-header"><span>Logs (<span id="log-count">0</span>)</span>
+        <div style="display:flex;gap:6px"><button class="btn btn--ghost btn--sm" id="btn-export-logs">Export</button><button class="btn btn--ghost btn--sm" id="btn-clear-logs">Vider</button></div>
+      </div>
+      <div style="display:flex;gap:6px;padding:6px 12px">
+        <select class="select-sm" id="log-filter-query" style="flex:1"><option value="">Toutes requetes</option></select>
+        <select class="select-sm" id="log-filter-cam" style="flex:1"><option value="">Toutes cameras</option></select>
+      </div>
+      <div style="padding:0 12px 6px"><div class="log-size-bar-wrap"><div id="log-size-bar" class="log-size-bar"></div></div><div id="log-size" style="font-size:10px;color:var(--text-3);margin-top:2px">0 Mo</div></div>
+      <div id="log-list" class="log-list"></div>
+    </div>
+  </div>
 </div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<div id="source-panel" class="floating-panel hidden">
+  <div class="panel-header"><span>Sources actives</span><button class="btn btn--ghost btn--sm" onclick="document.getElementById('source-panel').classList.add('hidden')">&times;</button></div>
+  <div id="source-list" class="source-list"></div>
+</div>
+<div id="camera-popup" class="camera-popup hidden"><div id="camera-popup-inner"></div></div>
+<div id="query-modal" class="modal-overlay hidden"></div>
+<div id="log-detail-modal" class="modal-overlay hidden"></div>
+<div id="settings-panel" class="settings-panel hidden">
+  <div class="settings-panel__inner">
+    <div class="panel-header"><span>Parametres</span><button class="btn btn--ghost btn--sm" id="btn-settings-close">&times;</button></div>
+    <div id="settings-body"></div>
+  </div>
+</div>
+<nav class="mobile-nav">
+  <button class="mobile-nav__btn active" data-tab="map">Carte</button>
+  <button class="mobile-nav__btn" data-tab="streams">Flux</button>
+  <button class="mobile-nav__btn" data-tab="queries">Requetes</button>
+  <button class="mobile-nav__btn" data-tab="logs">Logs</button>
+</nav>
+<div id="query-panel-mobile" class="panel-mobile hidden"><div class="panel-header"><span>Requetes CV</span><button class="btn btn--primary btn--sm" id="btn-add-query-mobile">+ Nouvelle</button></div><div id="query-list-mobile"></div></div>
+<div id="log-panel-mobile" class="panel-mobile hidden"><div class="panel-header"><span>Logs</span></div><div id="log-list-mobile"></div></div>
 <script type="module" src="src/app.js"></script>
-</body>
-</html>
+<script>document.getElementById('btn-settings').addEventListener('click',()=>document.getElementById('settings-panel').classList.toggle('hidden'));document.getElementById('btn-settings-close').addEventListener('click',()=>document.getElementById('settings-panel').classList.add('hidden'));</script>
+</body></html>

@@ -1,24 +1,5 @@
-// Recupere les cameras de trafic Road511 couvrant 50 etats US et 13 provinces canadiennes
-import { BaseAdapter } from './BaseAdapter.js';
-const API = 'https://511.org/api/v2/get/cameras';
-
-export class Road511Adapter extends BaseAdapter {
-  constructor() { super({ id:'road511', name:'Road511 US/CA', refreshIntervalMs:300000 }); }
-
-  // Interroge l'API Road511 avec un filtre de bbox optionnel
-  async fetchCameras(bbox) {
-    try {
-      const qs = bbox ? `?bbox=${bbox.west},${bbox.south},${bbox.east},${bbox.north}&limit=200` : '?limit=100';
-      const d  = await (await fetch(this.proxy(API+qs))).json();
-      return (d.features||d||[]).map((f,i) => {
-        const p=f.properties||f, g=f.geometry?.coordinates;
-        return this.makeCamera({
-          id:p.Id||p.id||i, lat:g?.[1]||p.Latitude, lng:g?.[0]||p.Longitude,
-          name:p.Name||p.name||`Road511 #${i}`, country:'US',
-          snapshotUrl:p.ImageUrl||null, streamUrl:p.VideoUrl||null,
-          streamType:p.VideoUrl?'hls':'snapshot', isLive:!!p.VideoUrl, tags:['trafic','usa'],
-        });
-      }).filter(Boolean);
-    } catch { return []; }
-  }
-}
+import{BaseAdapter}from'./BaseAdapter.js';
+function pCO(d,a){const j=typeof d==='string'?JSON.parse(d):d;return(j.Features||j.features||[]).map(f=>{const p=f.properties||f,c=f.geometry?.coordinates||[];return a.normalize({id:'cotrip_'+(p.id||p.cameraId),name:p.name||'CO Camera',lat:+c[1]||+p.latitude||0,lng:+c[0]||+p.longitude||0,snapshotUrl:p.imageUrl||'',status:'live',isLive:false,country:'US'});});}
+function p511(d,a){const j=typeof d==='string'?JSON.parse(d):d;return(j.Features||j||[]).map(f=>{const p=f.properties||f,c=f.geometry?.coordinates||[];return a.normalize({id:'511_'+(p.ID||p.id),name:p.Name||p.name||'511 Camera',lat:+c[1]||+p.Latitude||0,lng:+c[0]||+p.Longitude||0,snapshotUrl:p.Url||'',status:'live',isLive:false,country:'US'});});}
+const F=[{url:'https://cotrip.org/speed/getCameras.do',p:pCO},{url:'https://api.511.org/traffic/cameras?format=json',p:p511}];
+export class Road511Adapter extends BaseAdapter{constructor(o){super({id:'road511',name:'Road 511',...o});}async fetchCameras(){const r=await Promise.allSettled(F.map(f=>this.fetch(f.url).then(d=>f.p(d,this))));return r.flatMap(x=>x.status==='fulfilled'?x.value:[]);}}
