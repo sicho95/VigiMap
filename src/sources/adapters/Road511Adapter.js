@@ -1,5 +1,18 @@
 import{BaseAdapter}from'./BaseAdapter.js';
-function pCO(d,a){const j=typeof d==='string'?JSON.parse(d):d;return(j.Features||j.features||[]).map(f=>{const p=f.properties||f,c=f.geometry?.coordinates||[];return a.normalize({id:'cotrip_'+(p.id||p.cameraId),name:p.name||'CO Camera',lat:+c[1]||+p.latitude||0,lng:+c[0]||+p.longitude||0,snapshotUrl:p.imageUrl||'',status:'live',isLive:false,country:'US'});});}
-function p511(d,a){const j=typeof d==='string'?JSON.parse(d):d;return(j.Features||j||[]).map(f=>{const p=f.properties||f,c=f.geometry?.coordinates||[];return a.normalize({id:'511_'+(p.ID||p.id),name:p.Name||p.name||'511 Camera',lat:+c[1]||+p.Latitude||0,lng:+c[0]||+p.Longitude||0,snapshotUrl:p.Url||'',status:'live',isLive:false,country:'US'});});}
-const F=[{url:'https://cotrip.org/speed/getCameras.do',p:pCO},{url:'https://api.511.org/traffic/cameras?format=json',p:p511}];
-export class Road511Adapter extends BaseAdapter{constructor(o){super({id:'road511',name:'Road 511',...o});}async fetchCameras(){const r=await Promise.allSettled(F.map(f=>this.fetch(f.url).then(d=>f.p(d,this))));return r.flatMap(x=>x.status==='fulfilled'?x.value:[]);}}
+// 511 feeds varient par état — on interroge le feed national agrégé
+export class Road511Adapter extends BaseAdapter{
+  constructor(o){super({id:'road511',name:'Road511 US+CA',...o})}
+  async fetchCameras(b){
+    try{
+      const j=await this._fetch('https://511.org/open-data/traffic/cameras.json');
+      const arr=Array.isArray(j)?j:(j.events||j.cameras||[]);
+      return arr.filter(c=>{
+        const la=+c.Latitude||+c.latitude||0,ln=+c.Longitude||+c.longitude||0;
+        return!b||(la>=b.south&&la<=b.north&&ln>=b.west&&ln<=b.east);
+      }).slice(0,300).map(c=>this.norm({
+        id:'r511_'+(c.ID||c.id||Math.random().toString(36).slice(2)),
+        name:c.Name||c.name||'Road511',
+        lat:+c.Latitude||+c.latitude||0,lng:+c.Longitude||+c.longitude||0,
+        snapshotUrl:c.ImageUrl||c.imageUrl||'',status:'live',isLive:true,country:'US'}));
+    }catch(e){console.warn('[VigiMap] Road511:',e.message);return[]}}
+}

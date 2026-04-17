@@ -4,10 +4,8 @@ export class InsecamAdapter extends BaseAdapter{
   async fetchCameras(){
     const out=[];
     for(let p=1;p<=3;p++){
-      try{
-        const j=await this._fetch(`https://www.insecam.org/en/jsoncameras/?page=${p}`);
-        const d=typeof j==='string'?JSON.parse(j):j;
-        for(const c of(d.cameras||[])){
+      try{const j=await this._fetch(`https://www.insecam.org/en/jsoncameras/?page=${p}`);
+        for(const c of(j.cameras||[])){
           out.push(this.norm({id:'ins_'+c.ip.replace(/\./g,'_')+'_'+c.port,
             name:`${c.city||''} ${c.country||''}`.trim()||'Insecam',
             lat:+c.latitude||0,lng:+c.longitude||0,
