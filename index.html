@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>VigiMap</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#161b22"/>
+  <link rel="icon" href="assets/icon.svg"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="src/ui/theme.css"/>
+  <link rel="stylesheet" href="src/ui/layout.css"/>
+  <link rel="stylesheet" href="src/ui/components.css"/>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar__brand">
+    <span class="navbar__logo">&#128065;</span>
+    <span class="navbar__title">VigiMap</span>
+  </div>
+  <div class="navbar__actions">
+    <button class="btn btn--ghost" id="btn-sources"><span class="icon">&#128225;</span><span class="label">Sources</span></button>
+    <button class="btn btn--ghost" id="btn-logs"><span class="icon">&#128203;</span><span class="label">Logs</span></button>
+    <button class="btn btn--ghost" id="btn-settings">&#9881;&#65039;</button>
+  </div>
+</nav>
+
+<main class="main-layout" id="main-layout">
+  <section class="map-panel" id="map-panel">
+    <div id="map"></div>
+    <div class="map-legend">
+      <span class="legend-item live">&#9679; Live</span>
+      <span class="legend-item delayed">&#9679; Differe</span>
+      <span class="legend-item offline">&#9679; Hors ligne</span>
+      <span class="legend-item pinned">&#9679; Epingle</span>
+      <span class="legend-item match">&#9679; Match</span>
+    </div>
+    <div class="map-filters">
+      <select id="filter-source" class="select-sm"><option value="">Toutes sources</option></select>
+      <select id="filter-status" class="select-sm">
+        <option value="">Tous statuts</option>
+        <option value="live">Live</option>
+        <option value="delayed">Differe</option>
+        <option value="offline">Hors ligne</option>
+      </select>
+      <select id="filter-country" class="select-sm"><option value="">Tous pays</option></select>
+      <button class="btn btn--sm btn--primary" id="btn-refresh">&#128260; Rafraichir</button>
+    </div>
+  </section>
+
+  <aside class="side-panel" id="side-panel">
+    <div class="player-section">
+      <div class="player-section__header">
+        <span>Flux epingles (<span id="pinned-count">0</span>)</span>
+        <select id="grid-layout" class="select-sm">
+          <option value="auto">Auto</option>
+          <option value="1">1x1</option>
+          <option value="2">2x2</option>
+          <option value="3">3x3</option>
+          <option value="4">4x4</option>
+        </select>
+      </div>
+      <div class="player-grid" id="player-grid">
+        <p class="player-empty">Cliquez sur une camera sur la carte pour l'epingler</p>
+      </div>
+    </div>
+    <div class="log-section">
+      <div class="log-section__header" id="log-toggle">
+        <span>Logs (<span id="log-count">0</span>)</span>
+        <div>
+          <span id="log-size" class="log-size">0 Mo / 100 Mo</span>
+          <button class="btn btn--sm btn--ghost" id="btn-export-logs">&#11015; Export</button>
+          <button class="btn btn--sm btn--ghost" id="btn-clear-logs">&#128465;</button>
+        </div>
+      </div>
+      <div class="log-list" id="log-list"></div>
+    </div>
+  </aside>
+</main>
+
+<nav class="mobile-nav">
+  <button class="mobile-nav__btn active" data-tab="map">&#128506; Carte</button>
+  <button class="mobile-nav__btn" data-tab="streams">&#127909; Flux</button>
+  <button class="mobile-nav__btn" data-tab="logs">&#128203; Logs</button>
+</nav>
+
+<div class="camera-popup hidden" id="camera-popup">
+  <div class="camera-popup__inner" id="camera-popup-inner"></div>
+</div>
+
+<div class="panel-overlay hidden" id="panel-overlay"></div>
+<div class="settings-panel hidden" id="settings-panel">
+  <div class="settings-panel__header">
+    <h2>Parametres</h2>
+    <button class="btn btn--ghost" id="btn-close-settings">&#10005;</button>
+  </div>
+  <div class="settings-panel__body" id="settings-body"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
