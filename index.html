@@ -27,13 +27,13 @@
     <button class="btn btn--ghost btn--sm" id="btn-queries">🔍 Requêtes</button>
     <button class="btn btn--ghost btn--sm" id="btn-logs">📋 Logs</button>
     <button class="btn btn--ghost btn--sm" id="btn-import">📂 Importer</button>
+    <button class="btn btn--ghost btn--sm" id="btn-add-stream">➕ Flux</button>
     <button class="btn btn--ghost btn--sm" id="btn-cv-toggle" data-on="0">CV On</button>
     <button class="btn btn--ghost btn--sm" id="btn-settings">⚙️</button>
   </div>
 </nav>
 
 <div class="app-layout">
-  <!-- GAUCHE : Carte -->
   <div class="map-panel" id="map-panel">
     <div class="map-toolbar">
       <select class="select-sm" id="filter-source"><option value="">Toutes sources</option></select>
@@ -46,33 +46,26 @@
       <select class="select-sm" id="filter-country"><option value="">Tous pays</option></select>
       <button class="btn btn--ghost btn--sm" id="btn-refresh">↻ Actualiser</button>
     </div>
-    <!-- Légende injectée par Leaflet en bas à gauche via MapManager -->
     <div id="map"></div>
   </div>
 
-  <!-- DROITE : Sidebar -->
   <div class="side-panel" id="side-panel">
-
     <div class="panel-section hidden" id="source-panel">
-      <div class="panel-header">
-        <span>📡 Sources</span>
-        <button class="btn btn--ghost btn--sm" id="btn-sources-close">✕</button>
-      </div>
+      <div class="panel-header"><span>📡 Sources</span>
+        <button class="btn btn--ghost btn--sm" id="btn-sources-close">✕</button></div>
       <div class="source-list" id="source-list"></div>
     </div>
 
     <div class="panel-section panel-section--flex" id="streams-panel">
       <div class="panel-header"><span>▶️ Flux épinglés</span></div>
       <div class="player-grid" id="player-grid">
-        <p class="player-empty">Épinglez une caméra depuis la carte</p>
+        <p class="player-empty">Épinglez une caméra depuis la carte ou ajoutez un flux via ➕ Flux</p>
       </div>
     </div>
 
     <div class="panel-section hidden" id="import-panel">
-      <div class="panel-header">
-        <span>📂 Importer un média</span>
-        <button class="btn btn--ghost btn--sm" id="btn-import-close">✕</button>
-      </div>
+      <div class="panel-header"><span>📂 Importer un média</span>
+        <button class="btn btn--ghost btn--sm" id="btn-import-close">✕</button></div>
       <div style="padding:12px;display:flex;flex-direction:column;gap:10px">
         <label style="font-size:12px;color:var(--text-2)">Vidéo (MP4, MKV, WebM…)</label>
         <input type="file" id="import-video" accept="video/*" multiple class="input" style="font-size:11px"/>
@@ -83,30 +76,24 @@
     </div>
 
     <div class="panel-section hidden" id="query-panel">
-      <div class="panel-header">
-        <span>🔍 Requêtes CV</span>
-        <button class="btn btn--primary btn--sm" id="btn-add-query">+ Nouvelle</button>
-      </div>
+      <div class="panel-header"><span>🔍 Requêtes CV</span>
+        <button class="btn btn--primary btn--sm" id="btn-add-query">+ Nouvelle</button></div>
       <div class="query-list" id="query-list"></div>
     </div>
 
     <div class="panel-section hidden" id="log-panel-side">
-      <div class="panel-header">
-        <span>📋 Logs détections</span>
+      <div class="panel-header"><span>📋 Logs détections</span>
         <div style="display:flex;gap:4px">
           <button class="btn btn--ghost btn--sm" id="btn-export-logs">⬇ Export</button>
           <button class="btn btn--ghost btn--sm" id="btn-clear-logs" style="color:var(--danger)">🗑</button>
-        </div>
-      </div>
+        </div></div>
       <div class="log-list" id="log-list"></div>
       <div style="padding:4px 12px;font-size:10px;color:var(--text-3)" id="log-size-info"></div>
     </div>
-
   </div>
 </div>
 
 <div class="camera-popup hidden" id="camera-popup"><div id="camera-popup-inner"></div></div>
-
 <div class="settings-panel hidden" id="settings-body">
   <div class="panel-header" style="padding:12px 16px">
     <span style="font-weight:600">⚙️ Paramètres</span>
@@ -114,7 +101,6 @@
   </div>
   <div class="settings-panel__inner" id="settings-inner"></div>
 </div>
-
 <div class="modal-overlay hidden" id="query-modal"></div>
 
 <nav class="mobile-nav" id="mobile-nav">
@@ -123,6 +109,5 @@
   <button class="mobile-nav__btn" data-tab="queries">🔍<br><span>Requêtes</span></button>
   <button class="mobile-nav__btn" data-tab="logs">📋<br><span>Logs</span></button>
 </nav>
-
 <script type="module" src="src/app.js"></script>
 </body></html>

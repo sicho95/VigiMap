@@ -36,7 +36,11 @@ async function loadCams(){
   setLoading(true);
   try{
     const cams=await fetchAllCameras(map.getBbox());
-    state.cameras.clear();cams.forEach(c=>state.cameras.set(c.id,c));
+    // Garder les caméras locales/youtube déjà épinglées
+    const keep=[...state.cameras.values()].filter(c=>c.sourceId==='local'||c.sourceId==='youtube');
+    state.cameras.clear();
+    keep.forEach(c=>state.cameras.set(c.id,c));
+    cams.forEach(c=>state.cameras.set(c.id,c));
     applyFilters();populateFilters();
   }catch(e){console.error('[VigiMap]',e)}
   finally{setLoading(false)}
@@ -51,7 +55,7 @@ function applyFilters(){
     if(!getSetting('showOffline')&&c.status==='offline')return false;
     return true;
   });
-  map.setCameras(v);
+  map.setCameras(v.filter(c=>c.lat!==0||c.lng!==0));
 }
 
 function populateFilters(){
@@ -114,7 +118,8 @@ function onCamClick(cam){
     <div style="font-size:11px;color:var(--text-2);margin-bottom:6px">
       ${cam.sourceId} · ${cam.country||'—'} · <span class="badge badge--${cam.status||'unknown'}">${cam.status||'?'}</span>
     </div>
-    <div style="font-size:11px;color:var(--text-3);margin-bottom:12px">${cam.lat.toFixed(5)}, ${cam.lng.toFixed(5)}</div>
+    <div style="font-size:11px;color:var(--text-3);margin-bottom:12px">
+      ${cam.lat?cam.lat.toFixed(5):'?'}, ${cam.lng?cam.lng.toFixed(5):'?'}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn btn--primary btn--sm" data-pin>${pinned?'Dépingler':'Épingler'}</button>
       ${cam.streamUrl||cam.snapshotUrl?'<button class="btn btn--ghost btn--sm" data-open>Ouvrir flux</button>':''}
@@ -138,6 +143,48 @@ function onCamClick(cam){
 
 function closePopup(){document.getElementById('camera-popup').classList.add('hidden')}
 
+// ── Ajouter un flux manuel (YouTube, m3u8, MJPEG, snapshot) ─────────────────
+function openAddStreamDialog(){
+  const modal=document.getElementById('query-modal');if(!modal)return;
+  modal.innerHTML=`<div class="modal" style="max-width:440px">
+    <div class="modal__header"><h3>➕ Ajouter un flux</h3>
+      <button class="btn btn--ghost btn--sm" id="as-x">✕</button></div>
+    <div class="modal__body" style="display:flex;flex-direction:column;gap:10px">
+      <label style="font-size:12px;color:var(--text-2)">URL du flux</label>
+      <input class="input" id="as-url" placeholder="https://youtube.com/watch?v=… ou .m3u8 ou snapshot…"/>
+      <label style="font-size:12px;color:var(--text-2)">Nom affiché</label>
+      <input class="input" id="as-name" placeholder="Ex: Times Square Live"/>
+      <label style="font-size:12px;color:var(--text-2)">Coordonnées (optionnel)</label>
+      <div style="display:flex;gap:6px">
+        <input class="input" id="as-lat" type="number" placeholder="Lat" style="flex:1"/>
+        <input class="input" id="as-lng" type="number" placeholder="Lng" style="flex:1"/>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost btn--sm" id="as-cancel">Annuler</button>
+      <button class="btn btn--primary btn--sm" id="as-ok">Ajouter</button>
+    </div></div>`;
+  modal.classList.remove('hidden');
+  const close=()=>modal.classList.add('hidden');
+  document.getElementById('as-x').onclick=close;
+  document.getElementById('as-cancel').onclick=close;
+  document.getElementById('as-ok').onclick=()=>{
+    const url=(document.getElementById('as-url')?.value||'').trim();
+    const name=(document.getElementById('as-name')?.value||'').trim()||'Flux manuel';
+    const lat=+(document.getElementById('as-lat')?.value)||0;
+    const lng=+(document.getElementById('as-lng')?.value)||0;
+    if(!url){flash('⚠️ URL requise');return}
+    const ytId=url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1];
+    const id=(ytId?'yt_':'stream_')+Date.now();
+    const cam={id,name,sourceId:ytId?'youtube':'manual',
+      lat,lng,streamUrl:url,snapshotUrl:'',
+      isLive:true,status:'live',country:'',city:'',tags:['manual']};
+    if(lat&&lng){state.cameras.set(id,cam);applyFilters()}
+    grid.pin(cam);refreshCV();
+    close();flash(`✅ "${name}" ajouté`);
+  };
+}
+
 function bindUI(){
   const on=(id,ev,fn)=>document.getElementById(id)?.addEventListener(ev,fn);
   on('filter-source','change',e=>{state.filters.source=e.target.value;applyFilters()});
@@ -150,7 +197,6 @@ function bindUI(){
     e.target.textContent=active?'CV On':'CV Off';
     active?cv.stopAll():refreshCV();
   });
-  // Sources → sidebar DROITE
   on('btn-sources','click',()=>{toggleSide('source-panel');renderSourcePanel()});
   on('btn-sources-close','click',()=>toggleSide('source-panel',false));
   on('btn-queries','click',()=>toggleSide('query-panel'));
@@ -158,6 +204,7 @@ function bindUI(){
   on('btn-import','click',()=>toggleSide('import-panel'));
   on('btn-import-close','click',()=>toggleSide('import-panel',false));
   on('btn-import-run','click',()=>importer.run());
+  on('btn-add-stream','click',openAddStreamDialog);
   on('btn-settings','click',()=>document.getElementById('settings-body')?.classList.toggle('hidden'));
   on('btn-settings-close','click',()=>document.getElementById('settings-body')?.classList.add('hidden'));
   map.getMap().on('click',closePopup);
@@ -179,7 +226,6 @@ function initMobileNav(){
     const sp=document.getElementById('side-panel');if(sp)sp.style.display=t!=='map'?'flex':'none';
     if(t==='queries')toggleSide('query-panel',true);
     if(t==='logs'){toggleSide('log-panel-side',true);logPanel.refresh()}
-    if(t==='streams')toggleSide('streams-panel',true);
   }));
 }
 
