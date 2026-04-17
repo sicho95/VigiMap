@@ -1,6 +1,59 @@
-import{loadSettings,saveSettings}from'./SettingsManager.js';
+import{getSetting,setSetting}from'./SettingsManager.js';
 import{SOURCE_REGISTRY}from'../sources/SourceManager.js';
-const T=t=>'<div class="settings-section__title">'+t+'</div>';
-export function initSettingsPanel(){renderSettings();document.getElementById('settings-body')?.addEventListener('change',onChange);document.getElementById('settings-body')?.addEventListener('blur',e=>{if(e.target.id==='s-proxy') saveSettings({proxyUrl:e.target.value.trim()});},true);}
-function renderSettings(){const s=loadSettings(),el=document.getElementById('settings-body');if(!el) return;el.innerHTML=T('Sources & Proxy')+'<div class="settings-row"><label>Proxy CORS</label><input class="input" id="s-proxy" value="'+(s.proxyUrl||'')+'" placeholder="https://proxy.example.com/?url="/></div>'+SOURCE_REGISTRY.map(src=>'<div class="settings-row"><label>'+src.name+'</label><label class="toggle"><input type="checkbox" data-s="source_'+src.id+'" '+(s.sources?.[src.id]!==false?'checked':'')+'/><span class="toggle__slider"></span></label></div>').join('')+T('Carte')+'<div class="settings-row"><label>Cameras offline</label><label class="toggle"><input type="checkbox" data-s="showOffline" '+(s.showOffline?'checked':'')+'/><span class="toggle__slider"></span></label></div>'+T('Computer Vision')+'<div class="settings-row"><label>Backend TF.js</label><select class="select-sm" data-s="cvBackend">'+['webgl','wasm','cpu'].map(b=>'<option value="'+b+'" '+(b===s.cvBackend?'selected':'')+'>'+b.toUpperCase()+'</option>').join('')+'</select></div><div class="settings-row"><label>Frequence</label><select class="select-sm" data-s="cvFrequency"><option value="realtime">Temps reel</option><option value="interval_1">1s</option><option value="interval_2" selected>2s</option><option value="interval_5">5s</option><option value="interval_10">10s</option><option value="on_motion">Sur mouvement</option></select></div><div class="settings-row"><label>Confiance min (%)</label><input class="input" type="number" min="10" max="100" data-s="cvConfidence" value="'+Math.round(s.cvConfidence*100)+'"/></div><div class="settings-row"><label>Capturer frame</label><label class="toggle"><input type="checkbox" data-s="captureFrameOnMatch" '+(s.captureFrameOnMatch?'checked':'')+'/><span class="toggle__slider"></span></label></div><div class="settings-row"><label>Qualite JPEG (%)</label><input class="input" type="number" min="40" max="95" data-s="jpegQuality" value="'+Math.round(s.jpegQuality*100)+'"/></div>'+T('Logs')+'<div class="settings-row"><label>Limite IndexedDB (Mo)</label><input class="input" type="number" min="10" max="2000" data-s="logLimitMb" value="'+s.logLimitMb+'"/></div>';}
-function onChange(e){const k=e.target.dataset.s;if(!k) return;let v=e.target.type==='checkbox'?e.target.checked:e.target.value;if(e.target.type==='number') v=+v;if(k.startsWith('source_')){const s=loadSettings();s.sources=s.sources||{};s.sources[k.replace('source_','')]=v;saveSettings(s);return;}if(k==='cvConfidence'||k==='jpegQuality') v=+v/100;saveSettings({[k]:v});}
+export function initSettingsPanel(){
+  const inner=document.getElementById('settings-inner');if(!inner)return;
+  renderSettings(inner);
+}
+function renderSettings(inner){
+  const g=k=>getSetting(k);
+  const srcRows=SOURCE_REGISTRY.map(s=>{
+    const on=getSetting('sources')?.[s.id]!==undefined?getSetting('sources')[s.id]:s.on;
+    return`<div class="settings-row">
+      <label>${s.name}<br><small style="color:var(--text-3)">[${s.region}]${s.proxy?' · proxy requis':''}</small></label>
+      <label class="toggle"><input type="checkbox" data-src="${s.id}" ${on?'checked':''}/>
+        <span class="toggle__slider"></span></label></div>`;
+  }).join('');
+  inner.innerHTML=`
+    <div class="settings-section__title">🌐 Proxy CORS</div>
+    <div class="settings-row">
+      <label>URL proxy<br><small style="color:var(--text-3)">ex: https://corsproxy.io/?</small></label>
+      <input class="input" id="sp-proxy" style="width:160px;font-size:11px" value="${g('proxyUrl')||''}" placeholder="https://…?url="/>
+    </div>
+    <div class="settings-section__title">📡 Sources (${SOURCE_REGISTRY.length} disponibles)</div>
+    ${srcRows}
+    <div class="settings-section__title">🗺️ Carte</div>
+    <div class="settings-row"><label>Afficher hors ligne</label>
+      <label class="toggle"><input type="checkbox" id="sp-offline" ${g('showOffline')!==false?'checked':''}/>
+        <span class="toggle__slider"></span></label></div>
+    <div class="settings-section__title">▶️ Flux</div>
+    <div class="settings-row"><label>Refresh snapshot (s)</label>
+      <input class="input" id="sp-snap" type="number" min="5" max="300" value="${g('snapshotRefresh')||30}" style="width:60px"/></div>
+    <div class="settings-section__title">🤖 Computer Vision</div>
+    <div class="settings-row"><label>Backend TF.js</label>
+      <select class="select-sm" id="sp-backend">
+        <option value="webgl" ${g('tfBackend')==='webgl'?'selected':''}>WebGL (GPU)</option>
+        <option value="wasm"  ${g('tfBackend')==='wasm'?'selected':''}>WASM</option>
+        <option value="cpu"   ${g('tfBackend')==='cpu'?'selected':''}>CPU</option>
+      </select></div>
+    <div class="settings-row"><label>Seuil confiance global (%)</label>
+      <input class="input" id="sp-conf" type="number" min="10" max="100" value="${Math.round((g('confidenceThreshold')||0.7)*100)}" style="width:60px"/></div>
+    <div class="settings-row"><label>Capturer frame sur match</label>
+      <label class="toggle"><input type="checkbox" id="sp-capture" ${g('captureOnMatch')!==false?'checked':''}/>
+        <span class="toggle__slider"></span></label></div>
+    <div style="padding:16px 0">
+      <button class="btn btn--primary btn--sm" id="sp-save" style="width:100%">💾 Enregistrer & recharger</button>
+    </div>`;
+  document.getElementById('sp-save')?.addEventListener('click',()=>{
+    setSetting('proxyUrl',document.getElementById('sp-proxy')?.value?.trim()||'');
+    setSetting('showOffline',document.getElementById('sp-offline')?.checked);
+    setSetting('snapshotRefresh',+document.getElementById('sp-snap')?.value||30);
+    setSetting('tfBackend',document.getElementById('sp-backend')?.value);
+    setSetting('confidenceThreshold',+document.getElementById('sp-conf')?.value/100);
+    setSetting('captureOnMatch',document.getElementById('sp-capture')?.checked);
+    const ss=getSetting('sources')||{};
+    document.querySelectorAll('[data-src]').forEach(inp=>{ss[inp.dataset.src]=inp.checked});
+    setSetting('sources',ss);
+    document.getElementById('settings-body')?.classList.add('hidden');
+    window.location.reload();
+  });
+}

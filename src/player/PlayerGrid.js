@@ -1,52 +1,20 @@
-// Gere la grille des flux epingles — ajout, suppression et mise en page dynamique
-import { StreamPlayer } from './StreamPlayer.js';
-import { getSetting }   from '../settings/SettingsManager.js';
-
-// Nombre de colonnes selon le nombre total de flux
-const COLS = { 1:1,2:2,3:2,4:2,5:3,6:3,7:3,8:3,9:3,10:4 };
-
-export class PlayerGrid {
-  constructor(containerId) {
-    this._el = document.getElementById(containerId);
-    this._players = new Map(); // cameraId → StreamPlayer
+import{StreamPlayer}from'./StreamPlayer.js';
+const COLS={1:1,2:2,3:2,4:2,5:3,6:3,7:3,8:4,9:3,10:4};
+export class PlayerGrid{
+  constructor(id){this._el=document.getElementById(id);this._p=new Map()}
+  pin(cam){
+    if(this._p.has(cam.id))return;
+    const p=new StreamPlayer(cam);this._p.set(cam.id,p);
+    this._el?.querySelector('.player-empty')?.remove();
+    this._el?.appendChild(p.el);
+    p.onClose=()=>{this._p.delete(cam.id);this._rl();
+      if(!this._p.size&&this._el){const m=document.createElement('p');m.className='player-empty';m.textContent='Épinglez une caméra depuis la carte';this._el.appendChild(m)}};
+    this._rl();p.play();
   }
-
-  // Epingle un nouveau flux si la limite n'est pas atteinte
-  pin(cam) {
-    if (this._players.has(cam.id)||this._players.size>=getSetting('maxPinnedStreams')) return;
-    this._players.set(cam.id, new StreamPlayer(cam, id=>this.unpin(id), id=>this.unpin(id)));
-    this._sync();
-  }
-
-  // Depingle un flux et libere ses ressources
-  unpin(id) { this._players.get(id)?.destroy(); this._players.delete(id); this._sync(); }
-
-  // Retourne vrai si la camera est deja epinglee
-  isPinned(id) { return this._players.has(id); }
-
-  // Retourne le player d'une camera pour l'acces au pipeline CV
-  getPlayer(id) { return this._players.get(id); }
-
-  // Retourne tous les players actifs
-  all() { return [...this._players.values()]; }
-
-  // Souligne en orange un player lors d'un match CV
-  highlight(id) {
-    const el=this._players.get(id)?.getMedia()?.closest('.stream-player');
-    if (!el) return;
-    el.classList.add('match-on');
-    setTimeout(()=>el.classList.remove('match-on'),5000);
-  }
-
-  // Reconstruit le DOM de la grille avec le bon nombre de colonnes
-  _sync() {
-    const n = this._players.size;
-    const layoutSel = document.getElementById('grid-layout')?.value||'auto';
-    const cols = layoutSel==='auto' ? (COLS[n]||4) : parseInt(layoutSel);
-    this._el.style.gridTemplateColumns=`repeat(${cols},1fr)`;
-    this._el.innerHTML='';
-    if (!n) { this._el.innerHTML='<p class="player-empty">Cliquez sur une camera sur la carte pour l\'epingler</p>'; }
-    else { for (const p of this._players.values()) this._el.appendChild(p.render()); }
-    const cnt=document.getElementById('pinned-count'); if (cnt) cnt.textContent=n;
-  }
+  unpin(id){const p=this._p.get(id);if(!p)return;p.destroy();this._p.delete(id);this._rl()}
+  isPinned(id){return this._p.has(id)}
+  getPlayer(id){return this._p.get(id)||null}
+  all(){return[...this._p.values()]}
+  highlight(id){const p=this._p.get(id);if(!p)return;p.el.style.boxShadow='0 0 0 2px var(--clr-match)';setTimeout(()=>p.el.style.boxShadow='',6000)}
+  _rl(){const n=this._p.size;if(!this._el||!n)return;const c=COLS[Math.min(n,10)]||4;this._el.style.gridTemplateColumns=`repeat(${c},1fr)`}
 }

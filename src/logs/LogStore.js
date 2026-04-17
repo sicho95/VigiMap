@@ -1,1 +1,36 @@
-export class LogStore{constructor(){this._db=null;}async init(){this._db=new window.Dexie('VigiMapLogs');this._db.version(2).stores({logs:'++id,timestamp,cameraId,queryId,globalScore'});await this._db.open();}async add(e){if(!this._db) return;await this._trim();return this._db.logs.add({...e,timestamp:e.timestamp||new Date().toISOString()});}async getRecent(n=100){return this._db?.logs.orderBy('timestamp').reverse().limit(n).toArray()||[];}async count(){return this._db?.logs.count()||0;}async getFiltered({cameraId,queryId}={}){const a=await this._db?.logs.orderBy('timestamp').reverse().toArray()||[];return a.filter(e=>{if(cameraId&&e.cameraId!==cameraId) return false;if(queryId&&e.queryId!==queryId) return false;return true;});}async exportAll(fr=true){const a=await this._db?.logs.orderBy('timestamp').toArray()||[];return fr?a:a.map(({frameCapture,...r})=>r);}async clear(){return this._db?.logs.clear();}async size(){return new Blob([JSON.stringify(await this.exportAll(false))]).size;}async _trim(){const{getSetting}=await import('../settings/SettingsManager.js');const lim=getSetting('logLimitMb')*1048576;if(await this.size()>lim*0.9){const k=await this._db.logs.orderBy('timestamp').limit(200).primaryKeys();await this._db.logs.bulkDelete(k);}}}
+const DB_NAME='VigiMapLogs',DB_VER=2,STORE='logs';
+export class LogStore{
+  constructor(){this.db=null}
+  async init(){
+    return new Promise((ok,err)=>{
+      const r=indexedDB.open(DB_NAME,DB_VER);
+      r.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains(STORE))db.createObjectStore(STORE,{keyPath:'id',autoIncrement:true})};
+      r.onsuccess=e=>{this.db=e.target.result;ok()};
+      r.onerror=e=>err(e);
+    });
+  }
+  async add(entry){
+    if(!this.db)return;
+    return new Promise((ok,err)=>{
+      const tx=this.db.transaction(STORE,'readwrite');
+      tx.objectStore(STORE).add({...entry,ts:Date.now()});
+      tx.oncomplete=ok;tx.onerror=err;
+    });
+  }
+  async getAll(){
+    if(!this.db)return[];
+    return new Promise(ok=>{
+      const tx=this.db.transaction(STORE,'readonly');
+      const r=tx.objectStore(STORE).getAll();
+      r.onsuccess=()=>ok(r.result.reverse());
+    });
+  }
+  async clear(){
+    if(!this.db)return;
+    return new Promise(ok=>{
+      const tx=this.db.transaction(STORE,'readwrite');
+      tx.objectStore(STORE).clear();tx.oncomplete=ok;
+    });
+  }
+  async exportJson(){const d=await this.getAll();const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(b),download:'vigimap-logs.json'});a.click()}
+}

@@ -1,20 +1,92 @@
-import{ObjectDetector}from'./ObjectDetector.js';
-import{ColorAnalyzer}from'./ColorAnalyzer.js';
-import{FaceRecognizer}from'./FaceRecognizer.js';
-import{PlateReader}from'./PlateReader.js';
-import{QueryMatcher}from'./QueryMatcher.js';
-import{getSetting}from'../settings/SettingsManager.js';
-export class CVEngine{constructor(onMatch){this._on=onMatch;this._det=new ObjectDetector();this._col=new ColorAnalyzer();this._face=new FaceRecognizer();this._plate=new PlateReader();this._m=new QueryMatcher();this._t=new Map();this._run=new Set();}
-async start(player,queries){const id=player._cam.id;if(this._run.has(id)) return;this._run.add(id);await this._load(queries);this._sched(player,queries);}
-stop(id){const t=this._t.get(id);if(t?.raf) cancelAnimationFrame(t.raf);if(t?.timer) clearInterval(t.timer);this._t.delete(id);this._run.delete(id);}stopAll(){[...this._run].forEach(id=>this.stop(id));}
-async addFaceRef(id,img){await this._face.load();return this._face.addReference(id,img);}removeFaceRef(id){this._face.removeReference(id);}
-async analyzeOnce(player,queries){const m=player.getMedia?.();if(!m) return null;const c=tc(m);if(!c) return null;return this._analyze(c,queries,player._cam.id,player);}
-async _load(queries){const types=new Set(queries.flatMap(q=>q.criteria.map(c=>c.type)));const b=getSetting('cvBackend');if(types.has('object')||types.has('color')||types.has('plate')) await this._det.load(b);if(types.has('face')) await this._face.load();if(types.has('plate')) await this._plate.load();}
-_sched(player,queries){const id=player._cam.id,freq=getSetting('cvFrequency'),run=()=>this._tick(player,queries);if(freq==='realtime'){const lp=()=>{if(!this._run.has(id)) return;run();const e=this._t.get(id);if(e) e.raf=requestAnimationFrame(lp);};this._t.set(id,{raf:requestAnimationFrame(lp)});}else if(freq==='on_motion'){this._t.set(id,{timer:setInterval(()=>this._mv(player,queries),500),ph:0});}else{const MS={interval_1:1e3,interval_2:2e3,interval_5:5e3,interval_10:1e4};this._t.set(id,{timer:setInterval(run,MS[freq]||2e3)});}}
-async _tick(p,q){const m=p.getMedia?.();if(!m) return;const c=tc(m);if(c) await this._analyze(c,q,p._cam.id,p);}
-async _mv(p,q){const m=p.getMedia?.();if(!m) return;const c=tc(m);if(!c) return;const id=p._cam.id,h=ph(c),e=this._t.get(id);if(Math.abs(h-(e?.ph||0))<50) return;if(e) e.ph=h;await this._analyze(c,q,id,p);}
-async _analyze(canvas,queries,cameraId,player=null){const active=queries.filter(q=>q.enabled&&q.criteria?.length);if(!active.length) return null;const thr=getSetting('cvConfidence');const objects=this._det.isReady?await this._det.detect(canvas,thr):[];for(const o of objects) o.color=this._col.analyze(canvas,o.bbox);const faces=this._face.isReady?await this._face.detect(canvas,thr):[];const plates=[];if(this._plate.isReady) for(const v of objects.filter(o=>['car','truck','bus','motorcycle'].includes(o.class))){const r=await this._plate.read(canvas,v.bbox);if(r.text) plates.push(r);}const cv={objects,faces,plates};for(const query of active){const ev=this._m.evaluate(query,cv);if(ev.matched&&ev.globalScore>=(query.confidenceThreshold||thr)){const fr=getSetting('captureFrameOnMatch')?canvas.toDataURL('image/jpeg',getSetting('jpegQuality')):null;this._on(cameraId,query,ev,fr,player);}}if(player?.getOverlay?.()) ov(player.getOverlay(),canvas,objects,faces);return cv;}}
-function tc(m){const w=m.videoWidth||m.naturalWidth;if(!w) return null;const h=m.videoHeight||m.naturalHeight;const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(m,0,0,w,h);return c;}
-function ph(c){const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let s=0;for(let i=0;i<d.length;i+=64) s+=d[i]+d[i+1]+d[i+2];return s;}
-const CL={rouge:'#f85149',orange:'#f0883e',jaune:'#d29922',vert:'#3fb950',cyan:'#39d353',bleu:'#58a6ff',violet:'#a371f7',rose:'#ff7eb6',blanc:'#e6edf3',gris:'#8b949e',noir:'#21262d'};
-function ov(el,src,objects,faces){el.width=src.width;el.height=src.height;const ctx=el.getContext('2d');ctx.clearRect(0,0,el.width,el.height);ctx.lineWidth=2;ctx.font='bold 12px Inter,sans-serif';for(const o of objects){const[x,y,w,h]=o.bbox,c=o.color?.name?(CL[o.color.name]||'#58a6ff'):'#58a6ff';ctx.strokeStyle=c;ctx.fillStyle=c+'33';ctx.strokeRect(x,y,w,h);ctx.fillRect(x,y,w,h);ctx.fillStyle=c;ctx.fillText(o.class+' '+Math.round(o.score*100)+'%',x,y>14?y-4:y+h+14);}for(const f of faces){const[x,y,w,h]=f.bbox;ctx.strokeStyle='#a371f7';ctx.strokeRect(x,y,w,h);if(f.matches?.length){ctx.fillStyle='#a371f7';ctx.fillText(f.matches[0].refId,x,y>14?y-4:y+h+14);}}}
+export class CVEngine{
+  constructor(onMatch){this._om=onMatch;this._active=new Map();this._tf=null;this._model=null;this._faceApi=null;this._faceRefs=new Map()}
+  async _loadTF(){
+    if(this._tf)return;
+    try{this._tf=window.tf;this._model=await window.cocoSsd?.load?.()}
+    catch(e){console.warn('[CV] TF/COCO non disponible:',e.message)}
+  }
+  async start(player,queries){
+    if(!player||!queries?.length)return;
+    const id=player.getCamId();if(this._active.has(id))return;
+    await this._loadTF();
+    const iv=setInterval(async()=>{
+      const qs=queries.filter(q=>q.enabled!==false);
+      if(!qs.length){clearInterval(iv);this._active.delete(id);return}
+      await this._runFrame(player,qs);
+    },4000);
+    this._active.set(id,iv);
+  }
+  stopAll(){for(const iv of this._active.values())clearInterval(iv);this._active.clear()}
+  stop(id){const iv=this._active.get(id);if(iv){clearInterval(iv);this._active.delete(id)}}
+  async _runFrame(player,queries){
+    const vid=player.getVideo();const img=player.getImg();
+    const source=vid||img;if(!source)return;
+    const canvas=player.getCanvas();
+    if(canvas){canvas.width=source.videoWidth||source.naturalWidth||320;canvas.height=source.videoHeight||source.naturalHeight||240}
+    for(const q of queries){
+      const r=await this._evalQuery(source,canvas,q);
+      if(r&&r.globalScore>=(q.confidenceThreshold||0.7)){
+        let frame=null;
+        if(q.captureFrameOnMatch!==false&&canvas){try{frame=canvas.toDataURL('image/jpeg',0.7)}catch(_){}}
+        await this._om?.(player.getCamId(),q,r,frame);
+      }
+    }
+  }
+  async _evalQuery(source,canvas,q){
+    if(!q.criteria?.length)return null;
+    let scores=[];
+    for(const c of q.criteria){
+      const s=await this._evalCriterion(source,canvas,c);
+      if(s===null)return null;
+      scores.push(s);
+    }
+    const global=scores.reduce((a,b)=>a+b,0)/scores.length;
+    return{globalScore:global,matchDetails:scores.map((s,i)=>({criterion:q.criteria[i],score:s}))};
+  }
+  async _evalCriterion(source,canvas,c){
+    if(c.type==='object')return this._detectObject(source,c);
+    if(c.type==='face')return this._detectFace(source,canvas,c);
+    return 0.5;
+  }
+  async _detectObject(source,c){
+    if(!this._model)return 0.5;
+    try{
+      const preds=await this._model.detect(source);
+      const found=preds.filter(p=>p.class===c.value&&p.score>=(c.confidence||0.5));
+      return found.length?Math.max(...found.map(p=>p.score)):0;
+    }catch(e){return 0}
+  }
+  async _detectFace(source,canvas,c){
+    if(!window.faceapi)return 0.5;
+    try{
+      const det=await window.faceapi.detectAllFaces(source).withFaceLandmarks().withFaceDescriptors();
+      if(!det.length)return 0;
+      if(!c.refId)return det.length>0?0.9:0;
+      const ref=this._faceRefs.get(c.refId);if(!ref)return 0.5;
+      const dist=Math.min(...det.map(d=>window.faceapi.euclideanDistance(d.descriptor,ref)));
+      return Math.max(0,1-(dist/(c.distance||0.6)));
+    }catch(e){return 0}
+  }
+  async addFaceRef(id,img){
+    if(!window.faceapi)return false;
+    try{
+      const det=await window.faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+      if(!det)return false;
+      this._faceRefs.set(id,det.descriptor);return true;
+    }catch(e){return false}
+  }
+  async analyzeOnce(player,queries){
+    await this._loadTF();
+    const vid=player?.getVideo();const img=player?.getImg();
+    const src=vid||img;if(!src)return null;
+    const canvas=player.getCanvas();
+    if(!queries?.length)return{objects:[],globalScore:0};
+    for(const q of queries){const r=await this._evalQuery(src,canvas,q);if(r)return r}
+    return null;
+  }
+  async analyzeImage(img,queries){
+    await this._loadTF();
+    for(const q of queries){const r=await this._evalQuery(img,null,q);if(r&&r.globalScore>=(q.confidenceThreshold||0.7))return{...r,query:q}}
+    return null;
+  }
+}

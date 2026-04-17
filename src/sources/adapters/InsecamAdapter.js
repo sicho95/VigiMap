@@ -1,2 +1,22 @@
 import{BaseAdapter}from'./BaseAdapter.js';
-export class InsecamAdapter extends BaseAdapter{constructor(o){super({id:'insecam',name:'Insecam',...o});}async fetchCameras(){const r=await Promise.allSettled([1,2,3].map(p=>this._p(p)));return r.flatMap(x=>x.status==='fulfilled'?x.value:[]);}async _p(p){const h=await this.fetch('https://www.insecam.org/en/jsoncameras/?page='+p);if(typeof h==='object'&&h.cameras) return h.cameras.map(c=>this.normalize({id:'insecam_'+c.id,name:c.city||c.country||'Insecam',lat:+c.latitude||0,lng:+c.longitude||0,snapshotUrl:'http://'+c.ip+':'+c.port+'/',country:c.country||'',city:c.city||'',status:'live',isLive:true}));const s=typeof h==='string'?h:'',re=/data-src="([^"]+)"[^>]*data-lat="([^"]+)"[^>]*data-lng="([^"]+)"[^>]*data-title="([^"]*)"/g,cams=[];let m;while((m=re.exec(s))!==null) cams.push(this.normalize({id:'insecam_'+btoa(m[1]).slice(0,12),name:m[4]||'Insecam',lat:+m[2],lng:+m[3],snapshotUrl:m[1],status:'live',isLive:true}));return cams;}}
+export class InsecamAdapter extends BaseAdapter{
+  constructor(o){super({id:'insecam',name:'Insecam',...o})}
+  async fetchCameras(){
+    const out=[];
+    for(let p=1;p<=3;p++){
+      try{
+        const j=await this._fetch(`https://www.insecam.org/en/jsoncameras/?page=${p}`);
+        const d=typeof j==='string'?JSON.parse(j):j;
+        for(const c of(d.cameras||[])){
+          out.push(this.norm({id:'ins_'+c.ip.replace(/\./g,'_')+'_'+c.port,
+            name:`${c.city||''} ${c.country||''}`.trim()||'Insecam',
+            lat:+c.latitude||0,lng:+c.longitude||0,
+            snapshotUrl:`http://${c.ip}:${c.port}${c.image}`,
+            streamUrl:`http://${c.ip}:${c.port}`,
+            status:'unknown',country:c.country||'',city:c.city||''}));
+        }
+      }catch(e){break}
+    }
+    return out;
+  }
+}

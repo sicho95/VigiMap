@@ -1,48 +1,63 @@
-import { getSetting }           from '../settings/SettingsManager.js';
-import { InsecamAdapter }       from './adapters/InsecamAdapter.js';
-import { LtaSingaporeAdapter }  from './adapters/LtaSingaporeAdapter.js';
-import { OsmOverpassAdapter }   from './adapters/OsmOverpassAdapter.js';
-import { WindyAdapter }         from './adapters/WindyAdapter.js';
-import { EarthCamAdapter }      from './adapters/EarthCamAdapter.js';
-import { CamViewerAdapter }     from './adapters/CamViewerAdapter.js';
+import{getSetting}from'../settings/SettingsManager.js';
+import{OsmOverpassAdapter}from'./adapters/OsmOverpassAdapter.js';
+import{OpenTrafficAdapter}from'./adapters/OpenTrafficAdapter.js';
+import{InsecamAdapter}from'./adapters/InsecamAdapter.js';
+import{WindyAdapter}from'./adapters/WindyAdapter.js';
+import{EarthCamAdapter}from'./adapters/EarthCamAdapter.js';
+import{LtaSingaporeAdapter}from'./adapters/LtaSingaporeAdapter.js';
+import{NswTrafficAdapter}from'./adapters/NswTrafficAdapter.js';
+import{NztaAdapter}from'./adapters/NztaAdapter.js';
+import{TflAdapter}from'./adapters/TflAdapter.js';
+import{TrafikverketAdapter}from'./adapters/TrafikverketAdapter.js';
+import{SvvNorwayAdapter}from'./adapters/SvvNorwayAdapter.js';
+import{VejdirektoratetAdapter}from'./adapters/VejdirektoratetAdapter.js';
+import{FintrafficAdapter}from'./adapters/FintrafficAdapter.js';
+import{RwsNlAdapter}from'./adapters/RwsNlAdapter.js';
+import{DgtSpainAdapter}from'./adapters/DgtSpainAdapter.js';
+import{AstraChAdapter}from'./adapters/AstraChAdapter.js';
+import{AsfinagAdapter}from'./adapters/AsfinagAdapter.js';
+import{SytadinAdapter}from'./adapters/SytadinAdapter.js';
+import{CalgaryAdapter}from'./adapters/CalgaryAdapter.js';
+import{NycDotAdapter}from'./adapters/NycDotAdapter.js';
+import{CetSpBrAdapter}from'./adapters/CetSpBrAdapter.js';
 
-// OpenTraffic (Mapillary) = token requis → désactivé
-// Road511 = clé API requise → désactivé
-export const SOURCE_REGISTRY = [
-  { id: 'lta',       name: 'LTA Singapore', cls: LtaSingaporeAdapter, requiresProxy: false, enabledByDefault: true },
-  { id: 'overpass',  name: 'OSM Overpass',  cls: OsmOverpassAdapter,  requiresProxy: false, enabledByDefault: true },
-  { id: 'insecam',   name: 'Insecam',        cls: InsecamAdapter,      requiresProxy: true,  enabledByDefault: true },
-  { id: 'windy',     name: 'Windy Webcams',  cls: WindyAdapter,        requiresProxy: true,  enabledByDefault: true },
-  { id: 'earthcam',  name: 'EarthCam',       cls: EarthCamAdapter,     requiresProxy: true,  enabledByDefault: true },
-  { id: 'camviewer', name: 'CamViewer',      cls: CamViewerAdapter,    requiresProxy: true,  enabledByDefault: true },
+export const SOURCE_REGISTRY=[
+  {id:'osm_overpass', name:'OSM Overpass',         cls:OsmOverpassAdapter,    proxy:false, region:'Mondial',       on:true},
+  {id:'opentraffic',  name:'OpenTrafficCamMap',     cls:OpenTrafficAdapter,    proxy:false, region:'Mondial',       on:true},
+  {id:'insecam',      name:'Insecam',               cls:InsecamAdapter,        proxy:true,  region:'Mondial',       on:true},
+  {id:'windy',        name:'Windy Webcams',         cls:WindyAdapter,          proxy:true,  region:'Mondial',       on:true},
+  {id:'earthcam',     name:'EarthCam',              cls:EarthCamAdapter,       proxy:true,  region:'Mondial',       on:false},
+  {id:'lta_sg',       name:'LTA Singapore',         cls:LtaSingaporeAdapter,   proxy:false, region:'Asie',          on:true},
+  {id:'nsw_traffic',  name:'Live Traffic NSW',      cls:NswTrafficAdapter,     proxy:false, region:'Australie',     on:true},
+  {id:'nzta',         name:'NZTA (NZ)',             cls:NztaAdapter,           proxy:false, region:'NZ',            on:true},
+  {id:'tfl',          name:'TfL Londres',           cls:TflAdapter,            proxy:false, region:'UK',            on:true},
+  {id:'trafikverket', name:'Trafikverket (SE)',      cls:TrafikverketAdapter,   proxy:false, region:'Scandinavie',   on:false},
+  {id:'svv_no',       name:'Statens vegvesen (NO)', cls:SvvNorwayAdapter,      proxy:false, region:'Scandinavie',   on:false},
+  {id:'vejdir_dk',    name:'Vejdirektoratet (DK)',  cls:VejdirektoratetAdapter,proxy:false, region:'Scandinavie',   on:false},
+  {id:'fintraffic',   name:'Fintraffic (FI)',       cls:FintrafficAdapter,     proxy:false, region:'Scandinavie',   on:false},
+  {id:'rws_nl',       name:'RWS Pays-Bas',          cls:RwsNlAdapter,          proxy:false, region:'Europe',        on:false},
+  {id:'dgt_spain',    name:'DGT España',            cls:DgtSpainAdapter,       proxy:false, region:'Europe',        on:false},
+  {id:'astra_ch',     name:'ASTRA Suisse',          cls:AstraChAdapter,        proxy:false, region:'Europe',        on:false},
+  {id:'asfinag',      name:'ASFINAG Autriche',      cls:AsfinagAdapter,        proxy:true,  region:'Europe',        on:false},
+  {id:'sytadin',      name:'Sytadin IDF (FR)',      cls:SytadinAdapter,        proxy:true,  region:'France',        on:false},
+  {id:'calgary',      name:'Calgary Traffic (CA)',  cls:CalgaryAdapter,        proxy:false, region:'Amériques',     on:false},
+  {id:'nycdot',       name:'NYC DOT',               cls:NycDotAdapter,         proxy:false, region:'Amériques',     on:false},
+  {id:'cetsp_br',     name:'CET São Paulo (BR)',    cls:CetSpBrAdapter,        proxy:false, region:'Amériques',     on:false},
 ];
 
-export async function fetchAllCameras(bbox) {
-  const proxy    = getSetting('proxyUrl') || '';
-  const settings = getSetting('sources')  || {};
-
-  const runnable = SOURCE_REGISTRY.filter(s => {
-    if (settings[s.id] === false) return false;
-    if (s.requiresProxy && !proxy) {
-      console.info(`[VigiMap] Source "${s.name}" ignorée — proxy CORS requis (paramètres ⚙)`);
-      return false;
-    }
+export async function fetchAllCameras(bbox){
+  const pUrl=getSetting('proxyUrl')||'';
+  const ss=getSetting('sources')||{};
+  const runnable=SOURCE_REGISTRY.filter(s=>{
+    const enabled=ss[s.id]!==undefined?ss[s.id]:s.on;
+    if(!enabled)return false;
+    if(s.proxy&&!pUrl){console.info(`[VigiMap] "${s.name}" ignorée — proxy requis`);return false}
     return true;
   });
-
-  const results = await Promise.allSettled(
-    runnable.map(s => {
-      const adapter = new s.cls({ proxy: s.requiresProxy ? proxy : '' });
-      return adapter.fetchCameras(bbox);
-    })
-  );
-
-  return results.flatMap((r, i) => {
-    if (r.status === 'fulfilled') return r.value;
-    const name = runnable[i]?.name;
-    const msg  = r.reason?.message || String(r.reason);
-    if (!/[45]\d\d/.test(msg))
-      console.warn(`[VigiMap] Erreur source "${name}":`, msg);
-    return [];
+  const res=await Promise.allSettled(runnable.map(s=>new s.cls({proxy:s.proxy?pUrl:''}).fetchCameras(bbox)));
+  return res.flatMap((r,i)=>{
+    if(r.status==='fulfilled')return r.value;
+    console.warn(`[VigiMap] "${runnable[i]?.name}":`,r.reason?.message||r.reason);
+    return[];
   });
 }

@@ -18,69 +18,126 @@
 </head><body>
 <div id="loading-bar" class="loading-bar" style="display:none"></div>
 <nav class="navbar">
-  <div class="navbar__brand"><img src="assets/icon.svg" width="22" height="22" alt=""/>
-    <span>VigiMap</span><span class="badge--version">v2.0</span></div>
+  <div class="navbar__brand">
+    <img src="assets/icon.svg" width="22" height="22" alt=""/>
+    <span>VigiMap</span><span class="badge--version">v2.0</span>
+  </div>
   <div class="navbar__actions">
-    <button class="btn btn--ghost btn--sm" id="btn-sources">Sources</button>
-    <button class="btn btn--ghost btn--sm" id="btn-queries">Requetes CV</button>
-    <button class="btn btn--ghost btn--sm" id="btn-logs">Logs</button>
+    <button class="btn btn--ghost btn--sm" id="btn-sources">📡 Sources</button>
+    <button class="btn btn--ghost btn--sm" id="btn-queries">🔍 Requêtes</button>
+    <button class="btn btn--ghost btn--sm" id="btn-logs">📋 Logs</button>
+    <button class="btn btn--ghost btn--sm" id="btn-import">📂 Importer</button>
     <button class="btn btn--ghost btn--sm" id="btn-cv-toggle" data-on="0">CV On</button>
-    <button class="btn btn--ghost btn--sm" id="btn-settings">&#9881;</button>
+    <button class="btn btn--ghost btn--sm" id="btn-settings">⚙️</button>
   </div>
 </nav>
+
 <div class="app-layout">
-  <div id="map-panel" class="map-panel">
+  <!-- ── GAUCHE : Carte ───────────────────────────────────────────────── -->
+  <div class="map-panel" id="map-panel">
     <div class="map-toolbar">
       <select class="select-sm" id="filter-source"><option value="">Toutes sources</option></select>
-      <select class="select-sm" id="filter-status"><option value="">Tous statuts</option><option value="live">Live</option><option value="delayed">Differe</option><option value="offline">Hors ligne</option></select>
+      <select class="select-sm" id="filter-status">
+        <option value="">Tous statuts</option>
+        <option value="live">🟢 Live</option>
+        <option value="delayed">🟡 Différé</option>
+        <option value="offline">🔴 Hors ligne</option>
+      </select>
       <select class="select-sm" id="filter-country"><option value="">Tous pays</option></select>
-      <button class="btn btn--ghost btn--sm" id="btn-refresh">&#8635; Actualiser</button>
+      <button class="btn btn--ghost btn--sm" id="btn-refresh">↻ Actualiser</button>
+      <div class="map-legend">
+        <span class="legend-dot" style="background:#3fb950"></span>Live
+        <span class="legend-dot" style="background:#d29922"></span>Différé
+        <span class="legend-dot" style="background:#f85149"></span>Hors ligne
+        <span class="legend-dot" style="background:#a371f7"></span>Épinglée
+        <span class="legend-dot" style="background:#f0883e"></span>Match CV
+      </div>
     </div>
     <div id="map"></div>
   </div>
-  <div id="side-panel" class="side-panel">
-    <div class="side-panel__header"><span>Flux epingles (<span id="pinned-count">0</span>)</span>
-      <select class="select-sm" id="grid-layout"><option value="auto">Auto</option><option value="1">1x1</option><option value="2">2x1</option><option value="3">3x2</option><option value="4">4x3</option></select>
-    </div>
-    <div id="player-grid" class="player-grid"><p class="player-empty">Cliquez sur une camera pour l'epingler</p></div>
-    <div id="query-panel" class="query-panel hidden">
-      <div class="panel-header"><span>Requetes CV</span><button class="btn btn--primary btn--sm" id="btn-add-query">+ Nouvelle</button></div>
-      <div id="query-list"></div>
-    </div>
-    <div id="log-panel-side" class="log-panel hidden">
-      <div class="panel-header"><span>Logs (<span id="log-count">0</span>)</span>
-        <div style="display:flex;gap:6px"><button class="btn btn--ghost btn--sm" id="btn-export-logs">Export</button><button class="btn btn--ghost btn--sm" id="btn-clear-logs">Vider</button></div>
+
+  <!-- ── DROITE : Sidebar ─────────────────────────────────────────────── -->
+  <div class="side-panel" id="side-panel">
+
+    <!-- Sources (dans sidebar droite) -->
+    <div class="panel-section hidden" id="source-panel">
+      <div class="panel-header">
+        <span>📡 Sources</span>
+        <button class="btn btn--ghost btn--sm" id="btn-sources-close">✕</button>
       </div>
-      <div style="display:flex;gap:6px;padding:6px 12px">
-        <select class="select-sm" id="log-filter-query" style="flex:1"><option value="">Toutes requetes</option></select>
-        <select class="select-sm" id="log-filter-cam" style="flex:1"><option value="">Toutes cameras</option></select>
-      </div>
-      <div style="padding:0 12px 6px"><div class="log-size-bar-wrap"><div id="log-size-bar" class="log-size-bar"></div></div><div id="log-size" style="font-size:10px;color:var(--text-3);margin-top:2px">0 Mo</div></div>
-      <div id="log-list" class="log-list"></div>
+      <div class="source-list" id="source-list"></div>
     </div>
+
+    <!-- Streams épinglés (toujours visible) -->
+    <div class="panel-section panel-section--flex" id="streams-panel">
+      <div class="panel-header"><span>▶️ Flux épinglés</span></div>
+      <div class="player-grid" id="player-grid">
+        <p class="player-empty">Épinglez une caméra depuis la carte</p>
+      </div>
+    </div>
+
+    <!-- Import média -->
+    <div class="panel-section hidden" id="import-panel">
+      <div class="panel-header">
+        <span>📂 Importer un média</span>
+        <button class="btn btn--ghost btn--sm" id="btn-import-close">✕</button>
+      </div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <label style="font-size:12px;color:var(--text-2)">Vidéo (MP4, MKV, WebM…)</label>
+        <input type="file" id="import-video" accept="video/*" multiple class="input" style="font-size:11px"/>
+        <label style="font-size:12px;color:var(--text-2)">Photo(s) (JPG, PNG, WEBP…)</label>
+        <input type="file" id="import-photo" accept="image/*" multiple class="input" style="font-size:11px"/>
+        <button class="btn btn--primary btn--sm" id="btn-import-run">▶ Analyser avec les requêtes actives</button>
+      </div>
+    </div>
+
+    <!-- Requêtes CV -->
+    <div class="panel-section hidden" id="query-panel">
+      <div class="panel-header">
+        <span>🔍 Requêtes CV</span>
+        <button class="btn btn--primary btn--sm" id="btn-add-query">+ Nouvelle</button>
+      </div>
+      <div class="query-list" id="query-list"></div>
+    </div>
+
+    <!-- Logs -->
+    <div class="panel-section hidden" id="log-panel-side">
+      <div class="panel-header">
+        <span>📋 Logs détections</span>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn--ghost btn--sm" id="btn-export-logs">⬇ Export</button>
+          <button class="btn btn--ghost btn--sm" id="btn-clear-logs" style="color:var(--danger)">🗑</button>
+        </div>
+      </div>
+      <div class="log-list" id="log-list"></div>
+      <div style="padding:4px 12px;font-size:10px;color:var(--text-3)" id="log-size-info"></div>
+    </div>
+
   </div>
 </div>
-<div id="source-panel" class="floating-panel hidden">
-  <div class="panel-header"><span>Sources actives</span><button class="btn btn--ghost btn--sm" onclick="document.getElementById('source-panel').classList.add('hidden')">&times;</button></div>
-  <div id="source-list" class="source-list"></div>
-</div>
-<div id="camera-popup" class="camera-popup hidden"><div id="camera-popup-inner"></div></div>
-<div id="query-modal" class="modal-overlay hidden"></div>
-<div id="log-detail-modal" class="modal-overlay hidden"></div>
-<div id="settings-panel" class="settings-panel hidden">
-  <div class="settings-panel__inner">
-    <div class="panel-header"><span>Parametres</span><button class="btn btn--ghost btn--sm" id="btn-settings-close">&times;</button></div>
-    <div id="settings-body"></div>
+
+<!-- Popup caméra -->
+<div class="camera-popup hidden" id="camera-popup"><div id="camera-popup-inner"></div></div>
+
+<!-- Settings panel (slide droite) -->
+<div class="settings-panel hidden" id="settings-body">
+  <div class="panel-header" style="padding:12px 16px">
+    <span style="font-weight:600">⚙️ Paramètres</span>
+    <button class="btn btn--ghost btn--sm" id="btn-settings-close">✕</button>
   </div>
+  <div class="settings-panel__inner" id="settings-inner"></div>
 </div>
-<nav class="mobile-nav">
-  <button class="mobile-nav__btn active" data-tab="map">Carte</button>
-  <button class="mobile-nav__btn" data-tab="streams">Flux</button>
-  <button class="mobile-nav__btn" data-tab="queries">Requetes</button>
-  <button class="mobile-nav__btn" data-tab="logs">Logs</button>
+
+<!-- Modal requêtes -->
+<div class="modal-overlay hidden" id="query-modal"></div>
+
+<!-- Mobile nav -->
+<nav class="mobile-nav" id="mobile-nav">
+  <button class="mobile-nav__btn active" data-tab="map">🗺<br><span>Carte</span></button>
+  <button class="mobile-nav__btn" data-tab="streams">▶️<br><span>Flux</span></button>
+  <button class="mobile-nav__btn" data-tab="queries">🔍<br><span>Requêtes</span></button>
+  <button class="mobile-nav__btn" data-tab="logs">📋<br><span>Logs</span></button>
 </nav>
-<div id="query-panel-mobile" class="panel-mobile hidden"><div class="panel-header"><span>Requetes CV</span><button class="btn btn--primary btn--sm" id="btn-add-query-mobile">+ Nouvelle</button></div><div id="query-list-mobile"></div></div>
-<div id="log-panel-mobile" class="panel-mobile hidden"><div class="panel-header"><span>Logs</span></div><div id="log-list-mobile"></div></div>
+
 <script type="module" src="src/app.js"></script>
-<script>document.getElementById('btn-settings').addEventListener('click',()=>document.getElementById('settings-panel').classList.toggle('hidden'));document.getElementById('btn-settings-close').addEventListener('click',()=>document.getElementById('settings-panel').classList.add('hidden'));</script>
 </body></html>

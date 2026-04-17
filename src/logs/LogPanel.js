@@ -1,7 +1,24 @@
-import{getSetting}from'../settings/SettingsManager.js';
-export class LogPanel{constructor(s){this._s=s;this._f={queryId:'',cameraId:''};}
-bind(){document.getElementById('btn-export-logs')?.addEventListener('click',()=>this._exp());document.getElementById('btn-clear-logs')?.addEventListener('click',()=>this._clr());document.getElementById('log-filter-query')?.addEventListener('change',e=>{this._f.queryId=e.target.value;this.refresh();});document.getElementById('log-filter-cam')?.addEventListener('change',e=>{this._f.cameraId=e.target.value;this.refresh();});}
-async refresh(){const entries=await this._s.getFiltered(this._f);const el=document.getElementById('log-list');if(!el) return;el.innerHTML=entries.slice(0,100).map(e=>'<div class="log-entry" data-lid="'+e.id+'"><span class="log-entry__time">'+new Date(e.timestamp).toLocaleTimeString('fr-FR')+'</span><span class="log-entry__q">'+(e.queryName||'&mdash;')+'</span><span class="log-entry__cam">'+(e.cameraName||e.cameraId)+'</span><span class="log-entry__score '+(e.globalScore>=0.85?'high':e.globalScore>=0.7?'mid':'')+'">'+Math.round((e.globalScore||0)*100)+'%</span>'+(e.frameCapture?'<span>[img]</span>':'')+'</div>').join('');el.querySelectorAll('.log-entry').forEach(r=>r.addEventListener('click',()=>this._det(entries.find(e=>e.id==r.dataset.lid))));const tot=await this._s.count(),bytes=await this._s.size(),lm=getSetting('logLimitMb'),pct=Math.min(100,bytes/1048576/lm*100);const c=document.getElementById('log-count');if(c) c.textContent=tot;const s=document.getElementById('log-size');if(s) s.textContent=(bytes/1048576).toFixed(1)+' Mo / '+lm+' Mo';const b=document.getElementById('log-size-bar');if(b){b.style.width=pct+'%';b.style.background=pct>90?'var(--danger)':pct>70?'var(--warning)':'var(--accent)';}}
-_det(entry){if(!entry) return;const modal=document.getElementById('log-detail-modal');if(!modal) return;modal.innerHTML='<div class="modal"><div class="modal__header"><h3>Detail '+(entry.queryName||'')+'</h3><button class="btn btn--ghost btn--sm" id="lm-x">&times;</button></div><div class="modal__body">'+(entry.frameCapture?'<img src="'+entry.frameCapture+'" style="width:100%;border-radius:var(--r-md);margin-bottom:12px"/>':'')+'<div style="font-size:11px;line-height:1.8;color:var(--text-2)"><div>Cam : '+(entry.cameraName||entry.cameraId)+'</div><div>Score : '+Math.round((entry.globalScore||0)*100)+'%</div><div>Heure : '+new Date(entry.timestamp).toLocaleString('fr-FR')+'</div>'+(entry.matchDetails||[]).map(d=>'<div style="color:'+(d.matched?'var(--success)':'var(--danger)')+'">['+(d.matched?'OK':'NOK')+'] '+d.type+' '+(d.value||d.refId||'')+' '+Math.round((d.confidence||0)*100)+'%</div>').join('')+'</div></div></div>';modal.classList.remove('hidden');document.getElementById('lm-x')?.addEventListener('click',()=>modal.classList.add('hidden'));}
-async _exp(){const d=await this._s.exportAll(),a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));a.download='vigimap_logs_'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'.json';a.click();}
-async _clr(){if(!confirm('Vider tous les logs ?')) return;await this._s.clear();this.refresh();}}
+export class LogPanel{
+  constructor(store,listId,infoId){this._s=store;this._li=listId;this._ii=infoId}
+  bind(exportBtnId,clearBtnId){
+    document.getElementById(exportBtnId)?.addEventListener('click',()=>this._s.exportJson());
+    document.getElementById(clearBtnId)?.addEventListener('click',async()=>{await this._s.clear();this.refresh()});
+  }
+  async refresh(){
+    const el=document.getElementById(this._li);const info=document.getElementById(this._ii);
+    if(!el)return;
+    const logs=await this._s.getAll();
+    if(!logs.length){el.innerHTML='<p style="color:var(--text-3);font-size:12px;padding:12px">Aucun log</p>';if(info)info.textContent='';return}
+    el.innerHTML=logs.slice(0,200).map(l=>{
+      const sc=l.globalScore||0;const cls=sc>=0.8?'high':sc>=0.6?'mid':'';
+      const t=new Date(l.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      return`<div class="log-entry">
+        <span class="log-entry__time">${t}</span>
+        <span class="log-entry__q">${l.queryName||'—'}</span>
+        <span class="log-entry__cam">${l.cameraName||l.cameraId||'—'}</span>
+        <span class="log-entry__score ${cls}">${Math.round(sc*100)}%</span>
+      </div>`;
+    }).join('');
+    if(info)info.textContent=`${logs.length} entrée${logs.length>1?'s':''}`;
+  }
+}
