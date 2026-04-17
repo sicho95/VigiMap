@@ -202,7 +202,7 @@ function _bind(existing, coco, cols) {
           c.refId = 'face_' + Date.now();
           const img = await fi2img(fi.files[0]);
           const ok  = await _cv?.addFaceRef(c.refId, img);
-          if (!ok) { alert('Aucun visage détecté dans l'image.'); return; }
+          if (!ok) { alert('Aucun visage détecté dans l\'image.'); return; }
         } else {
           c.refId = existing?.criteria?.find(cr => cr.type === 'face')?.refId || null;
         }
