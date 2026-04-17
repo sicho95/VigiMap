@@ -33,7 +33,7 @@
 </nav>
 
 <div class="app-layout">
-  <!-- ── GAUCHE : Carte ───────────────────────────────────────────────── -->
+  <!-- GAUCHE : Carte -->
   <div class="map-panel" id="map-panel">
     <div class="map-toolbar">
       <select class="select-sm" id="filter-source"><option value="">Toutes sources</option></select>
@@ -45,21 +45,14 @@
       </select>
       <select class="select-sm" id="filter-country"><option value="">Tous pays</option></select>
       <button class="btn btn--ghost btn--sm" id="btn-refresh">↻ Actualiser</button>
-      <div class="map-legend">
-        <span class="legend-dot" style="background:#3fb950"></span>Live
-        <span class="legend-dot" style="background:#d29922"></span>Différé
-        <span class="legend-dot" style="background:#f85149"></span>Hors ligne
-        <span class="legend-dot" style="background:#a371f7"></span>Épinglée
-        <span class="legend-dot" style="background:#f0883e"></span>Match CV
-      </div>
     </div>
+    <!-- Légende injectée par Leaflet en bas à gauche via MapManager -->
     <div id="map"></div>
   </div>
 
-  <!-- ── DROITE : Sidebar ─────────────────────────────────────────────── -->
+  <!-- DROITE : Sidebar -->
   <div class="side-panel" id="side-panel">
 
-    <!-- Sources (dans sidebar droite) -->
     <div class="panel-section hidden" id="source-panel">
       <div class="panel-header">
         <span>📡 Sources</span>
@@ -68,7 +61,6 @@
       <div class="source-list" id="source-list"></div>
     </div>
 
-    <!-- Streams épinglés (toujours visible) -->
     <div class="panel-section panel-section--flex" id="streams-panel">
       <div class="panel-header"><span>▶️ Flux épinglés</span></div>
       <div class="player-grid" id="player-grid">
@@ -76,7 +68,6 @@
       </div>
     </div>
 
-    <!-- Import média -->
     <div class="panel-section hidden" id="import-panel">
       <div class="panel-header">
         <span>📂 Importer un média</span>
@@ -87,11 +78,10 @@
         <input type="file" id="import-video" accept="video/*" multiple class="input" style="font-size:11px"/>
         <label style="font-size:12px;color:var(--text-2)">Photo(s) (JPG, PNG, WEBP…)</label>
         <input type="file" id="import-photo" accept="image/*" multiple class="input" style="font-size:11px"/>
-        <button class="btn btn--primary btn--sm" id="btn-import-run">▶ Analyser avec les requêtes actives</button>
+        <button class="btn btn--primary btn--sm" id="btn-import-run">▶ Analyser</button>
       </div>
     </div>
 
-    <!-- Requêtes CV -->
     <div class="panel-section hidden" id="query-panel">
       <div class="panel-header">
         <span>🔍 Requêtes CV</span>
@@ -100,7 +90,6 @@
       <div class="query-list" id="query-list"></div>
     </div>
 
-    <!-- Logs -->
     <div class="panel-section hidden" id="log-panel-side">
       <div class="panel-header">
         <span>📋 Logs détections</span>
@@ -116,10 +105,8 @@
   </div>
 </div>
 
-<!-- Popup caméra -->
 <div class="camera-popup hidden" id="camera-popup"><div id="camera-popup-inner"></div></div>
 
-<!-- Settings panel (slide droite) -->
 <div class="settings-panel hidden" id="settings-body">
   <div class="panel-header" style="padding:12px 16px">
     <span style="font-weight:600">⚙️ Paramètres</span>
@@ -128,10 +115,8 @@
   <div class="settings-panel__inner" id="settings-inner"></div>
 </div>
 
-<!-- Modal requêtes -->
 <div class="modal-overlay hidden" id="query-modal"></div>
 
-<!-- Mobile nav -->
 <nav class="mobile-nav" id="mobile-nav">
   <button class="mobile-nav__btn active" data-tab="map">🗺<br><span>Carte</span></button>
   <button class="mobile-nav__btn" data-tab="streams">▶️<br><span>Flux</span></button>
