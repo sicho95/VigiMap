@@ -108,7 +108,7 @@ export const SOURCE_REGISTRY = [
   {id:'cnair_ro',        name:'CNAIR (RO)',             cls:CnairRoAdapter,          proxy:true,  apiKey:false, region:'Europe',        on:false},
   {id:'kozut_hu',        name:'Közút (HU)',             cls:KozutHuAdapter,          proxy:true,  apiKey:false, region:'Europe',        on:false},
   // ── US/Canada ──────────────────────────────────────────────────────────────
-  {id:'road511',         name:'Road511 (US+CA)',        cls:Road511Adapter,          proxy:false, apiKey:false, region:'Amériques',     on:true},
+  {id:'road511',         name:'Road511 (US+CA)',        cls:Road511Adapter,          proxy:true, apiKey:false, region:'Amériques',     on:true},
   {id:'nycdot',          name:'NYC DOT',                cls:NycDotAdapter,           proxy:false, apiKey:false, region:'Amériques',     on:true},
   {id:'chicagodot',      name:'Chicago DOT',            cls:ChicagoDotAdapter,       proxy:false, apiKey:false, region:'Amériques',     on:false},
   {id:'caltrans',        name:'Caltrans (CA)',          cls:CaltransAdapter,         proxy:false, apiKey:false, region:'Amériques',     on:false},
@@ -125,7 +125,7 @@ export const SOURCE_REGISTRY = [
 ];
 
 export async function fetchAllCameras(bbox){
-  const pUrl  = getSetting('proxyUrl') || '';
+  const pUrl = (getSetting('proxyUrl') || '').trim();
   const apiKeys= getSetting('apiKeys') || {};
   const ss    = getSetting('sources')  || {};
   const runnable = SOURCE_REGISTRY.filter(s => {
