@@ -1,92 +1,229 @@
-export class CVEngine{
-  constructor(onMatch){this._om=onMatch;this._active=new Map();this._tf=null;this._model=null;this._faceApi=null;this._faceRefs=new Map()}
-  async _loadTF(){
-    if(this._tf)return;
-    try{this._tf=window.tf;this._model=await window.cocoSsd?.load?.()}
-    catch(e){console.warn('[CV] TF/COCO non disponible:',e.message)}
+// CVEngine — TF.js + face-api.js
+// Détection : COCO-SSD (objets), face-api (visages + reco faciale)
+
+const TFJS_CDN   = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
+const COCOSD_CDN = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js';
+const FACEAPI_CDN= 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
+
+// Chemins modèles face-api (local d'abord, CDN jsDelivr en fallback)
+const MODELS_LOCAL = '/VigiMap/models';
+const MODELS_CDN   = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+
+export class CVEngine {
+  constructor(onMatch) {
+    this.onMatch  = onMatch;
+    this._ready   = false;
+    this._cocoSsd = null;
+    this._faceReady = false;
+    this._players  = new Map(); // camId → { player, queries, iv }
+    this._refFaces = new Map(); // queryId → Float32Array descriptor
+    this._init();
   }
-  async start(player,queries){
-    if(!player||!queries?.length)return;
-    const id=player.getCamId();if(this._active.has(id))return;
-    await this._loadTF();
-    const iv=setInterval(async()=>{
-      const qs=queries.filter(q=>q.enabled!==false);
-      if(!qs.length){clearInterval(iv);this._active.delete(id);return}
-      await this._runFrame(player,qs);
-    },4000);
-    this._active.set(id,iv);
+
+  async _init() {
+    // Charger TF.js
+    if (!window.tf) await _loadScript(TFJS_CDN);
+    if (!window.cocoSsd) await _loadScript(COCOSD_CDN);
+    if (!window.faceapi) await _loadScript(FACEAPI_CDN);
+
+    await tf.ready();
+
+    // COCO-SSD
+    try {
+      this._cocoSsd = await cocoSsd.load();
+      console.log('[CVEngine] COCO-SSD OK');
+    } catch (e) { console.warn('[CVEngine] COCO-SSD:', e.message); }
+
+    // face-api models — local d'abord, CDN en fallback
+    await this._loadFaceModels();
+
+    this._ready = true;
+    console.log('[CVEngine] Prêt. Face-api:', this._faceReady);
   }
-  stopAll(){for(const iv of this._active.values())clearInterval(iv);this._active.clear()}
-  stop(id){const iv=this._active.get(id);if(iv){clearInterval(iv);this._active.delete(id)}}
-  async _runFrame(player,queries){
-    const vid=player.getVideo();const img=player.getImg();
-    const source=vid||img;if(!source)return;
-    const canvas=player.getCanvas();
-    if(canvas){canvas.width=source.videoWidth||source.naturalWidth||320;canvas.height=source.videoHeight||source.naturalHeight||240}
-    for(const q of queries){
-      const r=await this._evalQuery(source,canvas,q);
-      if(r&&r.globalScore>=(q.confidenceThreshold||0.7)){
-        let frame=null;
-        if(q.captureFrameOnMatch!==false&&canvas){try{frame=canvas.toDataURL('image/jpeg',0.7)}catch(_){}}
-        await this._om?.(player.getCamId(),q,r,frame);
+
+  async _loadFaceModels() {
+    const paths = [MODELS_LOCAL, MODELS_CDN];
+    for (const base of paths) {
+      try {
+        await Promise.all([
+          faceapi.nets.ssdMobilenetv1.loadFromUri(base),
+          faceapi.nets.faceLandmark68Net.loadFromUri(base),
+          faceapi.nets.faceRecognitionNet.loadFromUri(base),
+        ]);
+        this._faceReady = true;
+        console.log('[CVEngine] face-api models chargés depuis', base);
+        return;
+      } catch (e) {
+        console.warn('[CVEngine] face-api models depuis', base, ':', e.message);
       }
     }
+    console.error('[CVEngine] Impossible de charger les modèles face-api');
   }
-  async _evalQuery(source,canvas,q){
-    if(!q.criteria?.length)return null;
-    let scores=[];
-    for(const c of q.criteria){
-      const s=await this._evalCriterion(source,canvas,c);
-      if(s===null)return null;
-      scores.push(s);
+
+  // ── Enregistrer un visage de référence pour une requête ─────────────────
+  async registerFaceDescriptor(queryId, imageEl) {
+    if (!this._faceReady) {
+      throw new Error('Modèles face-api non chargés. Vérifiez /models/ ou la connexion CDN.');
     }
-    const global=scores.reduce((a,b)=>a+b,0)/scores.length;
-    return{globalScore:global,matchDetails:scores.map((s,i)=>({criterion:q.criteria[i],score:s}))};
+    const detection = await faceapi
+      .detectSingleFace(imageEl, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    if (!detection) throw new Error('Aucun visage détecté sur la photo de référence. Utilisez une photo nette, de face, bien éclairée.');
+    this._refFaces.set(queryId, detection.descriptor);
+    return detection;
   }
-  async _evalCriterion(source,canvas,c){
-    if(c.type==='object')return this._detectObject(source,c);
-    if(c.type==='face')return this._detectFace(source,canvas,c);
-    return 0.5;
+
+  // ── Analyser une frame ───────────────────────────────────────────────────
+  async _analyzeFrame(player, queries) {
+    if (!this._ready) return null;
+    const video  = player.getVideo();
+    const img    = player.getImg();
+    const canvas = player.getCanvas();
+    const source = video || img;
+    if (!source) return null;
+
+    // Dessiner la frame sur le canvas
+    canvas.width  = source.videoWidth  || source.naturalWidth  || source.clientWidth  || 640;
+    canvas.height = source.videoHeight || source.naturalHeight || source.clientHeight || 480;
+    const ctx = canvas.getContext('2d');
+    try { ctx.drawImage(source, 0, 0, canvas.width, canvas.height); }
+    catch(e) { return null; } // CORS → skip
+
+    const results = [];
+
+    for (const q of queries) {
+      const r = await this._matchQuery(canvas, ctx, q);
+      if (r.matched) results.push({ query: q, result: r });
+    }
+
+    return results;
   }
-  async _detectObject(source,c){
-    if(!this._model)return 0.5;
-    try{
-      const preds=await this._model.detect(source);
-      const found=preds.filter(p=>p.class===c.value&&p.score>=(c.confidence||0.5));
-      return found.length?Math.max(...found.map(p=>p.score)):0;
-    }catch(e){return 0}
+
+  async _matchQuery(canvas, ctx, query) {
+    const matched = { matched: false, globalScore: 0, matchDetails: [] };
+
+    // ── Détection d'objets COCO-SSD ────────────────────────────────────────
+    if (query.type === 'object' && this._cocoSsd) {
+      const preds = await this._cocoSsd.detect(canvas);
+      for (const p of preds) {
+        const label = p.class.toLowerCase();
+        if (query.objectClasses?.some(c => label.includes(c.toLowerCase()))) {
+          if (p.score >= (query.minConfidence || 0.4)) {
+            // Filtre couleur
+            if (query.colorFilter) {
+              const roi = ctx.getImageData(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
+              const colorMatch = _checkColor(roi.data, query.colorFilter, query.colorTolerance || 80);
+              if (!colorMatch) continue;
+            }
+            matched.matched = true;
+            matched.globalScore = Math.max(matched.globalScore, p.score);
+            matched.matchDetails.push({ class: p.class, score: p.score, bbox: p.bbox });
+          }
+        }
+      }
+    }
+
+    // ── Reconnaissance faciale ─────────────────────────────────────────────
+    if (query.type === 'face' && this._faceReady && this._refFaces.has(query.id)) {
+      const refDesc = this._refFaces.get(query.id);
+      const detections = await faceapi
+        .detectAllFaces(canvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+      for (const d of detections) {
+        const dist = faceapi.euclideanDistance(refDesc, d.descriptor);
+        const sim  = 1 - Math.min(dist, 1);
+        if (sim >= (query.minSimilarity || 0.5)) {
+          matched.matched      = true;
+          matched.globalScore  = Math.max(matched.globalScore, sim);
+          matched.matchDetails.push({ similarity: sim, distance: dist, box: d.detection.box });
+          // Dessiner le rectangle de détection
+          _drawFaceBox(canvas.getContext('2d'), d.detection.box, sim, query.name);
+        }
+      }
+    }
+
+    return matched;
   }
-  async _detectFace(source,canvas,c){
-    if(!window.faceapi)return 0.5;
-    try{
-      const det=await window.faceapi.detectAllFaces(source).withFaceLandmarks().withFaceDescriptors();
-      if(!det.length)return 0;
-      if(!c.refId)return det.length>0?0.9:0;
-      const ref=this._faceRefs.get(c.refId);if(!ref)return 0.5;
-      const dist=Math.min(...det.map(d=>window.faceapi.euclideanDistance(d.descriptor,ref)));
-      return Math.max(0,1-(dist/(c.distance||0.6)));
-    }catch(e){return 0}
+
+  // ── API publique ──────────────────────────────────────────────────────────
+  async start(player, queries) {
+    const id = player.getCamId();
+    this.stop(id);
+    const interval = setInterval(async () => {
+      const results = await this._analyzeFrame(player, queries);
+      if (!results) return;
+      for (const { query, result } of results) {
+        this.onMatch?.(id, query, result, null);
+      }
+    }, 2000);
+    this._players.set(id, { player, queries, interval });
   }
-  async addFaceRef(id,img){
-    if(!window.faceapi)return false;
-    try{
-      const det=await window.faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-      if(!det)return false;
-      this._faceRefs.set(id,det.descriptor);return true;
-    }catch(e){return false}
+
+  async analyzeOnce(player, queries) {
+    const results = await this._analyzeFrame(player, queries);
+    if (!results?.length) return null;
+    const best = results[0];
+    this.onMatch?.(player.getCamId(), best.query, best.result, null);
+    return best.result;
   }
-  async analyzeOnce(player,queries){
-    await this._loadTF();
-    const vid=player?.getVideo();const img=player?.getImg();
-    const src=vid||img;if(!src)return null;
-    const canvas=player.getCanvas();
-    if(!queries?.length)return{objects:[],globalScore:0};
-    for(const q of queries){const r=await this._evalQuery(src,canvas,q);if(r)return r}
-    return null;
+
+  stop(camId)  { const p = this._players.get(camId); if (p) { clearInterval(p.interval); this._players.delete(camId); } }
+  stopAll()    { this._players.forEach((_, id) => this.stop(id)); }
+  isReady()    { return this._ready; }
+  isFaceReady(){ return this._faceReady; }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function _loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script'); s.src = src; s.async = true;
+    s.onload = res; s.onerror = () => rej(new Error('Script load failed: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+function _checkColor(pixels, targetColor, tolerance) {
+  // targetColor: { r, g, b } ou nom ('black','white','red'…)
+  const tc = typeof targetColor === 'string' ? _namedColor(targetColor) : targetColor;
+  if (!tc) return true;
+  let match = 0, total = 0;
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i], g = pixels[i+1], b = pixels[i+2], a = pixels[i+3];
+    if (a < 10) continue;
+    const dist = Math.sqrt((r-tc.r)**2 + (g-tc.g)**2 + (b-tc.b)**2);
+    if (dist < tolerance) match++;
+    total++;
   }
-  async analyzeImage(img,queries){
-    await this._loadTF();
-    for(const q of queries){const r=await this._evalQuery(img,null,q);if(r&&r.globalScore>=(q.confidenceThreshold||0.7))return{...r,query:q}}
-    return null;
-  }
+  return total > 0 && (match / total) > 0.05; // 5% des pixels de la couleur cible
+}
+
+function _namedColor(name) {
+  const colors = {
+    black:   { r:0,   g:0,   b:0   },
+    white:   { r:255, g:255, b:255 },
+    red:     { r:220, g:30,  b:30  },
+    blue:    { r:30,  g:80,  b:220 },
+    green:   { r:30,  g:180, b:30  },
+    yellow:  { r:240, g:220, b:30  },
+    orange:  { r:240, g:130, b:30  },
+    grey:    { r:120, g:120, b:120 },
+    gray:    { r:120, g:120, b:120 },
+    darkgrey:{ r:60,  g:60,  b:60  },
+    silver:  { r:180, g:180, b:190 },
+  };
+  return colors[name.toLowerCase()] || null;
+}
+
+function _drawFaceBox(ctx, box, sim, label) {
+  ctx.strokeStyle = `rgba(255,${Math.round(255*(1-sim))},0,0.9)`;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(box.x, box.y, box.width, box.height);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(box.x, box.y - 18, box.width, 18);
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px Inter, sans-serif';
+  ctx.fillText(`${label} ${Math.round(sim*100)}%`, box.x + 3, box.y - 4);
 }
