@@ -1,80 +1,102 @@
 import{getSetting,setSetting}from'./SettingsManager.js';
-import{SOURCE_REGISTRY}from'../sources/SourceManager.js';
 
 export function initSettingsPanel(){
-  // #settings-inner peut être absent si le panel n'est pas encore dans le DOM
+  // Attendre que le DOM soit stable avant de chercher #settings-inner
+  _tryInit(0);
+}
+
+function _tryInit(attempt){
   const inner=document.getElementById('settings-inner');
-  if(!inner){console.warn('[VigiMap] settings-inner introuvable');return;}
+  if(!inner){
+    if(attempt<10)requestAnimationFrame(()=>_tryInit(attempt+1));
+    else console.warn('[VigiMap] settings-inner introuvable après 10 tentatives');
+    return;
+  }
   _render(inner);
 }
 
 function _render(inner){
   const g=k=>getSetting(k);
   const ak=getSetting('apiKeys')||{};
-  const srcRows=SOURCE_REGISTRY.map(s=>{
-    const on=(getSetting('sources')||{})[s.id]!==undefined?(getSetting('sources')||{})[s.id]:s.on;
-    const badges=[
-      s.proxy&&!g('proxyUrl')?'<span style="font-size:10px;color:var(--warning)">proxy</span>':'',
-      s.apiKey&&!ak[s.apiKey]?`<span style="font-size:10px;color:var(--warning)">clé ${s.apiKey}</span>`:'',
-    ].join('');
-    return`<div class="settings-row">
-      <label>${s.name} ${badges}<br><small style="color:var(--text-3)">[${s.region}]</small></label>
-      <label class="toggle"><input type="checkbox" data-src="${s.id}" ${on?'checked':''}/>
-        <span class="toggle__slider"></span></label></div>`;
-  }).join('');
 
   inner.innerHTML=`
     <div class="settings-section__title">🌐 Proxy CORS</div>
     <div class="settings-row">
-      <label>URL proxy<br><small style="color:var(--text-3)">ex: https://mon-proxy.workers.dev/?url=</small></label>
-      <input class="input" data-id="proxy" style="width:180px;font-size:11px" value="${g('proxyUrl')||''}" placeholder="https://…?url="/>
+      <label>URL proxy<br><small style="color:var(--text-3)">ex: https://proxy.workers.dev/?url=</small></label>
+      <input class="input" data-k="proxyUrl" style="width:180px;font-size:11px"
+        value="${g('proxyUrl')||''}" placeholder="https://…?url="/>
     </div>
-    <div class="settings-section__title">🔑 Clés API</div>
+
+    <div class="settings-section__title">🔑 Clés API optionnelles</div>
     <div class="settings-row"><label>Windy Webcams</label>
-      <input class="input" data-id="windyKey" style="width:150px;font-size:11px" value="${ak.windyKey||''}" placeholder="clé Windy"/></div>
-    <div class="settings-row"><label>OpenWebcamDB<br><small style="color:var(--text-3)">Header: Authorization Bearer</small></label>
-      <input class="input" data-id="owdbKey" style="width:150px;font-size:11px" value="${ak.openwebcamdbKey||''}" placeholder="Bearer …"/></div>
-    <div class="settings-row"><label>NSW Transport API Key</label>
-      <input class="input" data-id="nswKey" style="width:150px;font-size:11px" value="${ak.nswKey||''}" placeholder="clé NSW"/></div>
-    <div class="settings-section__title">📡 Sources (${SOURCE_REGISTRY.length})</div>
-    ${srcRows}
+      <input class="input" data-k="windyKey" style="width:150px;font-size:11px"
+        value="${ak.windyKey||''}" placeholder="clé Windy"/></div>
+    <div class="settings-row"><label>OpenWebcamDB</label>
+      <input class="input" data-k="owdbKey" style="width:150px;font-size:11px"
+        value="${ak.openwebcamdbKey||''}" placeholder="Bearer token"/></div>
+    <div class="settings-row"><label>NSW Transport (AU)</label>
+      <input class="input" data-k="nswKey" style="width:150px;font-size:11px"
+        value="${ak.nswKey||''}" placeholder="clé NSW"/></div>
+
     <div class="settings-section__title">🗺️ Carte</div>
-    <div class="settings-row"><label>Afficher hors ligne</label>
-      <label class="toggle"><input type="checkbox" data-id="showOffline" ${g('showOffline')!==false?'checked':''}/>
+    <div class="settings-row"><label>Afficher caméras hors ligne</label>
+      <label class="toggle"><input type="checkbox" data-k="showOffline" ${g('showOffline')!==false?'checked':''}/>
         <span class="toggle__slider"></span></label></div>
+
     <div class="settings-section__title">▶️ Flux</div>
     <div class="settings-row"><label>Refresh snapshot (s)</label>
-      <input class="input" data-id="snapRefresh" type="number" min="5" max="300" value="${g('snapshotRefresh')||30}" style="width:60px"/></div>
-    <div class="settings-section__title">🤖 CV</div>
+      <input class="input" data-k="snapRefresh" type="number" min="5" max="300"
+        value="${g('snapshotRefresh')||30}" style="width:60px"/></div>
+
+    <div class="settings-section__title">🤖 Computer Vision</div>
     <div class="settings-row"><label>Backend TF.js</label>
-      <select class="select-sm" data-id="tfBackend">
-        <option value="webgl" ${g('tfBackend')==='webgl'?'selected':''}>WebGL</option>
+      <select class="select-sm" data-k="tfBackend">
+        <option value="webgl" ${g('tfBackend')==='webgl'?'selected':''}>WebGL (GPU)</option>
         <option value="wasm"  ${g('tfBackend')==='wasm' ?'selected':''}>WASM</option>
         <option value="cpu"   ${g('tfBackend')==='cpu'  ?'selected':''}>CPU</option>
       </select></div>
-    <div class="settings-row"><label>Seuil confiance (%)</label>
-      <input class="input" data-id="conf" type="number" min="10" max="100" value="${Math.round((g('confidenceThreshold')||0.7)*100)}" style="width:60px"/></div>
-    <div style="padding:16px 0">
-      <button class="btn btn--primary btn--sm" data-id="save" style="width:100%">💾 Enregistrer & recharger</button>
+    <div class="settings-row"><label>Seuil confiance global (%)</label>
+      <input class="input" data-k="conf" type="number" min="10" max="100"
+        value="${Math.round((g('confidenceThreshold')||0.7)*100)}" style="width:60px"/></div>
+    <div class="settings-row"><label>Capturer frame sur match</label>
+      <label class="toggle"><input type="checkbox" data-k="captureOnMatch" ${g('captureOnMatch')!==false?'checked':''}/>
+        <span class="toggle__slider"></span></label></div>
+
+    <div style="padding:16px 0 8px">
+      <button class="btn btn--primary btn--sm" data-k="save" style="width:100%">
+        💾 Enregistrer
+      </button>
+    </div>
+    <div id="settings-saved-msg" style="display:none;text-align:center;font-size:11px;color:var(--success);padding-bottom:8px">
+      ✅ Paramètres enregistrés — rechargement…
     </div>`;
 
-  // ── bind sur inner (jamais sur document) ──────────────────────────────────
-  inner.querySelector('[data-id="save"]').addEventListener('click',()=>{
-    const v=k=>inner.querySelector(`[data-id="${k}"]`)?.value;
-    const chk=k=>inner.querySelector(`[data-id="${k}"]`)?.checked;
-    setSetting('proxyUrl',      v('proxy')?.trim()||'');
-    setSetting('snapshotRefresh',+(v('snapRefresh'))||30);
-    setSetting('tfBackend',     v('tfBackend'));
-    setSetting('confidenceThreshold',+(v('conf'))/100);
-    setSetting('showOffline',   chk('showOffline'));
+  // Bind sur inner — jamais sur document
+  inner.querySelector('[data-k="save"]').addEventListener('click',()=>{
+    const v =k=>inner.querySelector(`[data-k="${k}"]`)?.value;
+    const ck=k=>inner.querySelector(`[data-k="${k}"]`)?.checked;
+
+    setSetting('proxyUrl',         (v('proxyUrl')||'').trim());
+    setSetting('snapshotRefresh',  +(v('snapRefresh'))||30);
+    setSetting('tfBackend',        v('tfBackend'));
+    setSetting('confidenceThreshold', +(v('conf'))/100);
+    setSetting('showOffline',      ck('showOffline'));
+    setSetting('captureOnMatch',   ck('captureOnMatch'));
+
     const ak2=getSetting('apiKeys')||{};
-    const wk=v('windyKey')?.trim();const ok=v('owdbKey')?.trim();const nk=v('nswKey')?.trim();
-    if(wk)ak2.windyKey=wk;if(ok)ak2.openwebcamdbKey=ok;if(nk)ak2.nswKey=nk;
+    const wk=(v('windyKey')||'').trim();
+    const ok=(v('owdbKey')||'').trim();
+    const nk=(v('nswKey')||'').trim();
+    if(wk)ak2.windyKey=wk;
+    if(ok)ak2.openwebcamdbKey=ok;
+    if(nk)ak2.nswKey=nk;
     setSetting('apiKeys',ak2);
-    const ss=getSetting('sources')||{};
-    inner.querySelectorAll('[data-src]').forEach(i=>{ss[i.dataset.src]=i.checked});
-    setSetting('sources',ss);
+
+    // Fermer le panneau settings AVANT le reload pour éviter le re-trigger
     document.getElementById('settings-body')?.classList.add('hidden');
-    window.location.reload();
+    const msg=document.getElementById('settings-saved-msg');
+    if(msg)msg.style.display='';
+    // Délai explicite pour que le DOM soit settled
+    setTimeout(()=>window.location.reload(),400);
   });
 }

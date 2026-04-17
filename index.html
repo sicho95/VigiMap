@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="fr"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>VigiMap</title><link rel="manifest" href="manifest.json"/>
+<title>VigiMap</title>
+<link rel="manifest" href="manifest.json"/>
 <meta name="theme-color" content="#161b22"/>
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -16,6 +17,7 @@
 <link rel="stylesheet" href="src/ui/layout.css"/>
 <link rel="stylesheet" href="src/ui/components.css"/>
 <link rel="stylesheet" href="src/ui/library.css"/>
+<link rel="stylesheet" href="src/ui/sources.css"/>
 </head><body>
 <div id="loading-bar" class="loading-bar" style="display:none"></div>
 
@@ -37,6 +39,7 @@
 </nav>
 
 <div class="app-layout">
+  <!-- Carte -->
   <div class="map-panel" id="map-panel">
     <div class="map-toolbar">
       <select class="select-sm" id="filter-source"><option value="">Toutes sources</option></select>
@@ -47,44 +50,50 @@
         <option value="offline">🔴 Hors ligne</option>
       </select>
       <select class="select-sm" id="filter-country"><option value="">Tous pays</option></select>
-      <button class="btn btn--ghost btn--sm" id="btn-refresh">↻ Actualiser</button>
+      <button class="btn btn--ghost btn--sm" id="btn-refresh">↻</button>
     </div>
     <div id="map"></div>
   </div>
 
   <div class="side-panel" id="side-panel">
 
-    <!-- Sources -->
+    <!-- ── Sources ──────────────────────────────────────────────────────── -->
     <div class="panel-section hidden" id="source-panel">
-      <div class="panel-header"><span>📡 Sources</span>
-        <button class="btn btn--ghost btn--sm" id="btn-sources-close">✕</button></div>
-      <div class="source-list" id="source-list"></div>
+      <div class="panel-header">
+        <span>📡 Sources <small id="source-count" style="color:var(--text-3)"></small></span>
+        <button class="btn btn--ghost btn--sm" id="btn-sources-close">✕</button>
+      </div>
+      <div id="source-list"></div>
     </div>
 
-    <!-- Flux épinglés -->
+    <!-- ── Flux épinglés ─────────────────────────────────────────────────── -->
     <div class="panel-section panel-section--flex" id="streams-panel">
       <div class="panel-header"><span>▶️ Flux épinglés</span></div>
       <div class="player-grid" id="player-grid">
-        <p class="player-empty">Épinglez une caméra depuis la carte ou cliquez sur ➕ Flux</p>
+        <p class="player-empty">Épinglez une caméra depuis la carte ou ajoutez un flux via ➕ Flux</p>
       </div>
     </div>
 
-    <!-- Bibliothèque YouTube / flux manuels -->
+    <!-- ── Bibliothèque ──────────────────────────────────────────────────── -->
     <div class="panel-section hidden" id="library-panel">
       <div class="panel-header">
         <span>📺 Bibliothèque</span>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn--primary btn--sm" id="btn-add-stream-lib">➕ Ajouter</button>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn btn--primary btn--sm" id="btn-add-stream-lib">➕</button>
+          <button class="btn btn--ghost btn--sm" id="btn-lib-export" title="Exporter JSON">⬇ Export</button>
+          <label class="btn btn--ghost btn--sm" style="cursor:pointer" title="Importer JSON">
+            ⬆ Import<input type="file" id="lib-import-file" accept=".json" style="display:none"/>
+          </label>
           <button class="btn btn--ghost btn--sm" id="btn-library-close">✕</button>
         </div>
       </div>
       <div class="lib-search">
-        <input class="input" id="lib-search-input" placeholder="Rechercher…"/>
+        <input class="input" id="lib-search-input" placeholder="🔍 Rechercher nom, ville, tag…"/>
       </div>
-      <div class="source-list" id="lib-list"></div>
+      <div id="lib-list"></div>
     </div>
 
-    <!-- Import -->
+    <!-- ── Import média ──────────────────────────────────────────────────── -->
     <div class="panel-section hidden" id="import-panel">
       <div class="panel-header"><span>📂 Importer un média</span>
         <button class="btn btn--ghost btn--sm" id="btn-import-close">✕</button></div>
@@ -97,29 +106,30 @@
       </div>
     </div>
 
-    <!-- Requêtes CV -->
+    <!-- ── Requêtes CV ───────────────────────────────────────────────────── -->
     <div class="panel-section hidden" id="query-panel">
       <div class="panel-header"><span>🔍 Requêtes CV</span>
         <button class="btn btn--primary btn--sm" id="btn-add-query">+ Nouvelle</button></div>
       <div class="query-list" id="query-list"></div>
     </div>
 
-    <!-- Logs -->
+    <!-- ── Logs ─────────────────────────────────────────────────────────── -->
     <div class="panel-section hidden" id="log-panel-side">
-      <div class="panel-header"><span>📋 Logs détections</span>
+      <div class="panel-header"><span>📋 Logs</span>
         <div style="display:flex;gap:4px">
-          <button class="btn btn--ghost btn--sm" id="btn-export-logs">⬇ Export</button>
+          <button class="btn btn--ghost btn--sm" id="btn-export-logs">⬇</button>
           <button class="btn btn--ghost btn--sm" id="btn-clear-logs" style="color:var(--danger)">🗑</button>
         </div></div>
       <div class="log-list" id="log-list"></div>
       <div style="padding:4px 12px;font-size:10px;color:var(--text-3)" id="log-size-info"></div>
     </div>
-
   </div>
 </div>
 
+<!-- Popup caméra -->
 <div class="camera-popup hidden" id="camera-popup"><div id="camera-popup-inner"></div></div>
 
+<!-- Panneau paramètres -->
 <div class="settings-panel hidden" id="settings-body">
   <div class="panel-header" style="padding:12px 16px">
     <span style="font-weight:600">⚙️ Paramètres</span>
@@ -128,8 +138,10 @@
   <div class="settings-panel__inner" id="settings-inner"></div>
 </div>
 
+<!-- Modale query CV -->
 <div class="modal-overlay hidden" id="query-modal"></div>
 
+<!-- Nav mobile -->
 <nav class="mobile-nav" id="mobile-nav">
   <button class="mobile-nav__btn active" data-tab="map">🗺<br><span>Carte</span></button>
   <button class="mobile-nav__btn" data-tab="streams">▶️<br><span>Flux</span></button>

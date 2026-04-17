@@ -1,24 +1,28 @@
 import{MapManager}from'./map/MapManager.js';
 import{PlayerGrid}from'./player/PlayerGrid.js';
 import{VideoImporter}from'./player/VideoImporter.js';
-import{fetchAllCameras,SOURCE_REGISTRY}from'./sources/SourceManager.js';
+import{fetchAllCameras}from'./sources/SourceManager.js';
+import{initSourcePanel}from'./sources/SourcePanel.js';
 import{initSettingsPanel}from'./settings/SettingsPanel.js';
 import{getSetting,setSetting}from'./settings/SettingsManager.js';
 import{LogStore}from'./logs/LogStore.js';
 import{LogPanel}from'./logs/LogPanel.js';
 import{CVEngine}from'./cv/CVEngine.js';
-import{initQueryPanel,renderQueryList}from'./queries/QueryEditor.js';
+import{initQueryPanel}from'./queries/QueryEditor.js';
 import{getActiveQueries}from'./queries/QueryManager.js';
 import{LibraryPanel}from'./youtube/LibraryPanel.js';
 import{openAddStreamModal}from'./youtube/AddStreamModal.js';
 import{getAllStreams,streamToCam}from'./youtube/YouTubeLibrary.js';
 
-const state={cameras:new Map(),filters:{source:'',status:'',country:'',search:''}};
+const state={cameras:new Map(),filters:{source:'',status:'',country:''}};
 let map,grid,logs,logPanel,cv,importer,libPanel;
 
 document.addEventListener('DOMContentLoaded',async()=>{
   if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+  // Settings panel — tolérant si #settings-inner pas encore dans DOM
   initSettingsPanel();
+
   map=new MapManager('map',onCamClick).init();
   requestAnimationFrame(()=>map.getMap().invalidateSize());
   grid=new PlayerGrid('player-grid');
@@ -28,12 +32,14 @@ document.addEventListener('DOMContentLoaded',async()=>{
   cv=new CVEngine(onCVMatch);
   importer=new VideoImporter(grid,cv,getActiveQueries,onCVMatch);
   initQueryPanel(()=>refreshCV(),cv);
-  renderSourcePanel();
 
-  // ── Bibliothèque YouTube / flux manuels ──────────────────────────────────
+  // ── Source panel ──────────────────────────────────────────────────────────
+  initSourcePanel('source-list',()=>loadCams());
+
+  // ── Bibliothèque ──────────────────────────────────────────────────────────
   libPanel=new LibraryPanel('lib-list',
-    cam=>{pinCam(cam)},                  // onPin
-    cam=>{state.cameras.set(cam.id,cam);applyFilters();}  // onEdit
+    cam=>pinCam(cam),
+    async()=>{await loadLibraryCamsOnMap();applyFilters()}
   );
   await libPanel.refresh();
   await loadLibraryCamsOnMap();
@@ -44,12 +50,12 @@ document.addEventListener('DOMContentLoaded',async()=>{
   await logPanel.refresh();
 });
 
-// Charge les flux sauvegardés sur la carte (avec marqueur YT rouge)
 async function loadLibraryCamsOnMap(){
   const streams=await getAllStreams();
   streams.forEach(s=>{
+    if(s.enabled===false)return;
     const cam=streamToCam(s);
-    if(cam.lat||cam.lng){state.cameras.set(cam.id,cam)}
+    if(cam.lat||cam.lng)state.cameras.set(cam.id,cam);
   });
 }
 
@@ -57,7 +63,6 @@ async function loadCams(){
   setLoading(true);
   try{
     const cams=await fetchAllCameras(map.getBbox());
-    // Conserver marqueurs YT/manuels déjà chargés
     const keep=[...state.cameras.values()].filter(c=>c.sourceId==='youtube'||c.sourceId==='manual');
     state.cameras.clear();
     keep.forEach(c=>state.cameras.set(c.id,c));
@@ -76,7 +81,7 @@ function applyFilters(){
     if(!getSetting('showOffline')&&c.status==='offline')return false;
     return true;
   });
-  map.setCameras(v.filter(c=>c.lat!==0||c.lng!==0));
+  map.setCameras(v.filter(c=>c.lat||c.lng));
 }
 
 function populateFilters(){
@@ -87,26 +92,6 @@ function fillSel(id,vals){
   const el=document.getElementById(id);if(!el)return;
   const first=el.options[0];el.innerHTML='';el.appendChild(first);
   vals.forEach(v=>{const o=document.createElement('option');o.value=o.textContent=v;el.appendChild(o)});
-}
-
-function renderSourcePanel(){
-  const list=document.getElementById('source-list');if(!list)return;
-  const settings=getSetting('sources')||{};
-  list.innerHTML=SOURCE_REGISTRY.map(s=>{
-    const on=settings[s.id]!==undefined?settings[s.id]:s.on;
-    const needP=s.proxy&&!getSetting('proxyUrl');
-    return`<div class="source-item">
-      <label class="toggle"><input type="checkbox" data-src="${s.id}" ${on?'checked':''}/>
-        <span class="toggle__slider"></span></label>
-      <span class="source-item__name">${s.name}</span>
-      <span class="source-item__tag">${s.region}</span>
-      ${needP?'<span class="source-item__tag" style="color:var(--warning)">proxy requis</span>':''}
-    </div>`;
-  }).join('');
-  list.querySelectorAll('[data-src]').forEach(inp=>inp.addEventListener('change',()=>{
-    const ss=getSetting('sources')||{};ss[inp.dataset.src]=inp.checked;
-    setSetting('sources',ss);loadCams();
-  }));
 }
 
 async function refreshCV(){
@@ -129,13 +114,13 @@ async function onCVMatch(cameraId,query,result,frameB64){
 
 function onCamClick(cam){
   const pinned=grid.isPinned(cam.id);
-  const isYt=cam.sourceId==='youtube';
+  const isYt=cam.sourceId==='youtube'||cam.sourceId==='manual';
   document.getElementById('camera-popup-inner').innerHTML=
     `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <strong style="font-size:13px">${cam.name}</strong>
       <button class="btn btn--ghost btn--sm" data-close>✕</button>
     </div>
-    ${cam.snapshotUrl&&isYt?`<img src="${cam.snapshotUrl}" style="width:100%;max-height:100px;object-fit:cover;border-radius:6px;margin-bottom:8px" loading="lazy"/>`:''
+    ${cam.snapshotUrl&&isYt?`<img src="${cam.snapshotUrl}" style="width:100%;max-height:100px;object-fit:cover;border-radius:6px;margin-bottom:8px" loading="lazy" onerror="this.style.display='none'"/>`:''
     }
     <div style="font-size:11px;color:var(--text-2);margin-bottom:6px">
       ${cam.sourceName||cam.sourceId} · ${cam.country||'—'} · <span class="badge badge--${cam.status||'unknown'}">${cam.status||'?'}</span>
@@ -145,15 +130,12 @@ function onCamClick(cam){
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn btn--primary btn--sm" data-pin>${pinned?'Dépingler':'▶ Regarder'}</button>
-      ${isYt?`<button class="btn btn--ghost btn--sm" data-edit>✏️ Modifier</button>`:''}
+      ${isYt?'<button class="btn btn--ghost btn--sm" data-edit>✏️ Modifier</button>':''}
       <button class="btn btn--ghost btn--sm" data-analyze>🤖 CV</button>
     </div>`;
   const inner=document.getElementById('camera-popup-inner');
   inner.querySelector('[data-close]').onclick=closePopup;
-  inner.querySelector('[data-pin]').onclick=()=>{
-    if(pinned)grid.unpin(cam.id);else pinCam(cam);
-    closePopup();
-  };
+  inner.querySelector('[data-pin]').onclick=()=>{pinned?grid.unpin(cam.id):pinCam(cam);closePopup()};
   inner.querySelector('[data-edit]')?.addEventListener('click',async()=>{
     closePopup();
     const updated=await openAddStreamModal({...cam,_dbId:cam._dbId,url:cam.streamUrl,ytId:cam.ytId});
@@ -167,24 +149,20 @@ function onCamClick(cam){
   document.getElementById('camera-popup').classList.remove('hidden');
 }
 
-function pinCam(cam){
-  grid.pin(cam);map.updateCameraStatus(cam.id,'pinned');refreshCV();
-}
-
+function pinCam(cam){grid.pin(cam);map.updateCameraStatus(cam.id,'pinned');refreshCV()}
 function closePopup(){document.getElementById('camera-popup').classList.add('hidden')}
 
 function bindUI(){
   const on=(id,ev,fn)=>document.getElementById(id)?.addEventListener(ev,fn);
-  on('filter-source','change',e=>{state.filters.source=e.target.value;applyFilters()});
-  on('filter-status','change',e=>{state.filters.status=e.target.value;applyFilters()});
+  on('filter-source','change', e=>{state.filters.source=e.target.value;applyFilters()});
+  on('filter-status','change', e=>{state.filters.status=e.target.value;applyFilters()});
   on('filter-country','change',e=>{state.filters.country=e.target.value;applyFilters()});
   on('btn-refresh','click',loadCams);
   on('btn-cv-toggle','click',e=>{
-    const active=e.target.dataset.on==='1';
-    e.target.dataset.on=active?'0':'1';e.target.textContent=active?'CV On':'CV Off';
-    active?cv.stopAll():refreshCV();
+    const a=e.target.dataset.on==='1';e.target.dataset.on=a?'0':'1';
+    e.target.textContent=a?'CV On':'CV Off';a?cv.stopAll():refreshCV();
   });
-  on('btn-sources','click',()=>{toggleSide('source-panel');renderSourcePanel()});
+  on('btn-sources','click',()=>toggleSide('source-panel'));
   on('btn-sources-close','click',()=>toggleSide('source-panel',false));
   on('btn-queries','click',()=>toggleSide('query-panel'));
   on('btn-logs','click',()=>{toggleSide('log-panel-side');logPanel.refresh()});
@@ -193,13 +171,25 @@ function bindUI(){
   on('btn-import-run','click',()=>importer.run());
   on('btn-library','click',()=>{toggleSide('library-panel');libPanel.refresh()});
   on('btn-library-close','click',()=>toggleSide('library-panel',false));
-  on('btn-add-stream','click',async()=>{
+  // Bouton ➕ dans navbar ET dans le panneau biblio
+  const addStream=async()=>{
     const cam=await openAddStreamModal();
     if(!cam)return;
     if(cam.lat||cam.lng){state.cameras.set(cam.id,cam);applyFilters()}
     await libPanel.refresh();flash(`✅ "${cam.name}" sauvegardé`);
-  });
+  };
+  on('btn-add-stream','click',addStream);
+  on('btn-add-stream-lib','click',addStream);
   on('lib-search-input','input',e=>libPanel.filter(e.target.value));
+  // Export/Import bibliothèque
+  on('btn-lib-export','click',()=>libPanel.exportJSON());
+  on('btn-lib-import','click',()=>document.getElementById('lib-import-file')?.click());
+  document.getElementById('lib-import-file')?.addEventListener('change',async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    try{const n=await libPanel.importJSON(f);flash(`✅ ${n} flux importés`)}
+    catch(err){flash(`⚠️ ${err.message}`)}
+    e.target.value='';
+  });
   on('btn-settings','click',()=>document.getElementById('settings-body')?.classList.toggle('hidden'));
   on('btn-settings-close','click',()=>document.getElementById('settings-body')?.classList.add('hidden'));
   map.getMap().on('click',closePopup);

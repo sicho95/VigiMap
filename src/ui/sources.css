@@ -1,0 +1,23 @@
+
+.source-filters {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px; border-bottom: 1px solid var(--border);
+}
+.source-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+  transition: background .15s;
+}
+.source-item:hover { background: var(--surface-2); }
+.source-item--dim { opacity: .55; }
+.source-item__info { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.source-item__name { font-size: 12px; font-weight: 500; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-item__tags { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.src-badge {
+  font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 500;
+}
+.src-badge--region  { background: rgba(88,166,255,.15); color: #58a6ff; }
+.src-badge--ok      { background: rgba(63,185,80,.15);  color: #3fb950; }
+.src-badge--warn    { background: rgba(210,153,34,.15); color: #d4a31a; }
+.src-badge--off     { background: rgba(248,81,73,.15);  color: #f85149; }
