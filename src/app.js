@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSettingsPanel();
 
   map     = new MapManager('map', onCamClick).init();
+  // Force Leaflet à recalculer la taille après que le DOM soit stable
+  requestAnimationFrame(() => map.getMap().invalidateSize());"""
   grid    = new PlayerGrid('player-grid');
   logs    = new LogStore();
   await logs.init();
