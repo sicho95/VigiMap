@@ -1,0 +1,43 @@
+/* ── Info tooltip ── */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+/* ── Criterion row amélioré ── */
+.criterion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+  background: var(--surface-2, var(--bg-elevated));
+  border-radius: var(--r-sm);
+  margin-bottom: 4px;
+}
+.criterion-type {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+/* ── Variables manquantes (compat v1 theme) ── */
+:root {
+  --surface-1: var(--bg-surface);
+  --surface-2: var(--bg-elevated);
+  --surface-3: var(--bg-hover);
+  --border-subtle: var(--border-s, #21262d);
+  --text-1: var(--text-1, #e6edf3);
+  --text-2: var(--text-2, #8b949e);
+  --text-3: var(--text-3, #484f58);
+}
