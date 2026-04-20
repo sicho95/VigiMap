@@ -1,7 +1,7 @@
 // ============================================================
-// StreamPlayer.js — v2.3
-// Fix : check YouTube AVANT isHlsUrl() pour éviter le manifestLoadError
-//       sur les URLs youtube.com/watch?v=... qui contiennent "manifest"
+// StreamPlayer.js — v2.4
+// Fix : loadSource passe aussi par le proxy pour les URLs externes
+//       Correction du double-encoding /?url=/?url=
 // ============================================================
 
 const HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
@@ -21,7 +21,6 @@ function isHlsUrl(url, streamType) {
   return u.includes('.m3u8') || u.includes('hls_variant') ||
          u.includes('hls_playlist') ||
          u.includes('googlevideo')  || u.includes('videoplayback');
-  // NOTE: 'manifest' retiré — trop générique, matchait les URLs YouTube
 }
 
 function ytId(url) {
@@ -32,6 +31,23 @@ function ytId(url) {
   } catch (_) {}
   const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
   return m ? m[1] : null;
+}
+
+/** Retourne la base du proxy (sans slash final, sans /?url=) */
+function getProxyBase() {
+  try {
+    const raw = (JSON.parse(localStorage.getItem('vigimap_settings') || '{}')).proxyUrl || '';
+    // Nettoyer : enlever slash final et éventuel /?url= résiduel
+    return raw.trim().replace(/\/?(\?url=.*)?$/, '');
+  } catch (_) { return ''; }
+}
+
+/** Enveloppe une URL dans le proxy seulement si elle n'est pas déjà proxifiée */
+function proxyWrap(base, url) {
+  if (!base) return url;
+  if (url.startsWith(base)) return url;           // déjà via ce proxy
+  if (url.startsWith('blob:')) return url;        // blob local, pas de proxy
+  return `${base}/?url=${encodeURIComponent(url)}`;
 }
 
 export class StreamPlayer {
@@ -100,13 +116,13 @@ export class StreamPlayer {
 
     // ── 3. HLS / m3u8 ────────────────────────────────────────────────────────
     if (isHlsUrl(url, this.cam.streamType)) {
+      // Forcer HTTPS
       const safeUrl = url.replace(/^http:\/\//i, 'https://');
+      const proxyBase = getProxyBase();
 
-      const proxyBase = (() => {
-        try {
-          return (JSON.parse(localStorage.getItem('vigimap_settings') || '{}')).proxyUrl || '';
-        } catch (_) { return ''; }
-      })().trim().replace(/\/$/, '');
+      // L'URL de chargement initiale passe aussi par le proxy
+      // (évite le ManifestLoadError sur les domaines externes sans CORS)
+      const sourceUrl = proxyWrap(proxyBase, safeUrl);
 
       wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">⏳ Chargement flux…</span>`;
 
@@ -123,14 +139,17 @@ export class StreamPlayer {
             levelLoadingTimeOut:    15000,
             fragLoadingTimeOut:     20000,
           };
+
+          // xhrSetup : proxy pour tous les segments/playlists suivants
           if (proxyBase) {
             hlsConfig.xhrSetup = (xhr, reqUrl) => {
-              if (!reqUrl.includes(proxyBase))
-                xhr.open('GET', `${proxyBase}/?url=${encodeURIComponent(reqUrl)}`, true);
+              const wrapped = proxyWrap(proxyBase, reqUrl);
+              if (wrapped !== reqUrl) xhr.open('GET', wrapped, true);
             };
           }
+
           this._hls = new HlsClass(hlsConfig);
-          this._hls.loadSource(safeUrl);
+          this._hls.loadSource(sourceUrl);   // ← proxifié dès le départ
           this._hls.attachMedia(v);
           this._hls.on(HlsClass.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
           this._hls.on(HlsClass.Events.ERROR, (_, data) => {
@@ -141,7 +160,7 @@ export class StreamPlayer {
           });
           wrap.appendChild(v);
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-          v.src = safeUrl; v.play().catch(() => {});
+          v.src = sourceUrl; v.play().catch(() => {});
           wrap.appendChild(v);
         } else {
           wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">HLS non supporté</span>`;
@@ -152,7 +171,7 @@ export class StreamPlayer {
       return;
     }
 
-    // ── 4. Snapshot image avec refresh (MJPEG / Insecam / snapshot) ──────────
+    // ── 4. Snapshot image avec refresh (MJPEG / snapshot) ───────────────────
     const img = document.createElement('img');
     img.style.cssText = 'width:100%;max-height:200px;object-fit:cover';
     const ref  = parseInt(localStorage.getItem('vigimap_snap_refresh') || '30', 10);
