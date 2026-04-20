@@ -24,9 +24,9 @@ export class LogStore {
       if (!db.objectStoreNames.contains(STORE))
         db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
     };
-    req.onsuccess  = (e) => { this.db = e.target.result; resolve(); };
-    req.onerror    = (e) => { console.warn('[VigiMap] IndexedDB indisponible:', e.target.error?.message); resolve(); };
-    req.onblocked  = ()  => { console.warn('[VigiMap] IndexedDB bloquée'); resolve(); };
+    req.onsuccess = (e) => { this.db = e.target.result; resolve(); };
+    req.onerror   = (e) => { console.warn('[VigiMap] IndexedDB indisponible:', e.target.error?.message); resolve(); };
+    req.onblocked = ()  => { console.warn('[VigiMap] IndexedDB bloquée'); resolve(); };
   }
 
   async add(entry) {
@@ -59,7 +59,8 @@ export class LogStore {
       try {
         const tx = this.db.transaction(STORE, 'readwrite');
         tx.objectStore(STORE).clear();
-        tx.oncomplete = ok; tx.onerror = ok;
+        tx.oncomplete = ok;
+        tx.onerror    = ok;
       } catch (e) { ok(); }
     });
   }
@@ -68,12 +69,12 @@ export class LogStore {
     const d = await this.getAll();
     const b = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
     const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(b), download: 'vigimap-logs.json'
+      href: URL.createObjectURL(b),
+      download: 'vigimap-logs.json'
     });
     a.click();
   }
 
-  // ✅ NOUVEAU — Rapport HTML imprimable avec @media print + images capturées
   async exportHtml() {
     const logs = await this.getAll();
     const now  = new Date().toLocaleString('fr-FR');
@@ -85,8 +86,8 @@ export class LogStore {
       const cls = sc >= 0.8 ? 'high' : sc >= 0.6 ? 'mid' : 'low';
 
       const details = (l.matchDetails || []).map(d => {
-        if (d.class)       return `${d.class} (${Math.round(d.score * 100)}%)`;
-        if (d.similarity)  return `Similarité ${Math.round(d.similarity * 100)}%`;
+        if (d.class)      return `${d.class} (${Math.round(d.score * 100)}%)`;
+        if (d.similarity) return `Similarité ${Math.round(d.similarity * 100)}%`;
         return '';
       }).filter(Boolean).join(', ');
 
@@ -119,7 +120,7 @@ export class LogStore {
     header h1 { font-size: 18px; font-weight: 700; color: #1a1a2e; }
     header .meta { font-size: 10px; color: #666; text-align: right; }
 
-    table { width: 100%; border-collapse: collapse; margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; }
     thead th { background: #1a1a2e; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; position: sticky; top: 0; }
     tbody tr { border-bottom: 1px solid #eee; }
     tbody tr:nth-child(even) { background: #f9f9f9; }
@@ -137,10 +138,8 @@ export class LogStore {
     .entry.mid  { border-left: 3px solid #9a6700; }
     .entry.low  { border-left: 3px solid #cf222e; }
     .details { font-size: 10px; color: #555; max-width: 180px; }
-
     .summary { padding: 8px 20px; background: #f0f4ff; border-bottom: 1px solid #dde; font-size: 11px; color: #444; }
 
-    /* ── @media print ──────────────────────────────────────────── */
     @media print {
       body { font-size: 9px; }
       header { padding: 8px 10px; }
@@ -157,29 +156,22 @@ export class LogStore {
 </head>
 <body>
   <header>
-    <div>
-      <h1>🗺️ VigiMap — Rapport de détection</h1>
-    </div>
+    <div><h1>🗺️ VigiMap — Rapport de détection</h1></div>
     <div class="meta">
       Généré le ${now}<br>
       ${logs.length} entrée${logs.length > 1 ? 's' : ''}
     </div>
   </header>
   <div class="summary">
-    Résumé : ${logs.filter(l => (l.globalScore||0) >= 0.8).length} haute confiance ·
-    ${logs.filter(l => (l.globalScore||0) >= 0.6 && (l.globalScore||0) < 0.8).length} moyenne ·
-    ${logs.filter(l => (l.globalScore||0) < 0.6).length} faible
+    Résumé : ${logs.filter(l => (l.globalScore || 0) >= 0.8).length} haute confiance ·
+    ${logs.filter(l => (l.globalScore || 0) >= 0.6 && (l.globalScore || 0) < 0.8).length} moyenne ·
+    ${logs.filter(l => (l.globalScore || 0) < 0.6).length} faible
   </div>
   <table>
     <thead>
       <tr>
-        <th>Frame capturée</th>
-        <th>Horodatage</th>
-        <th>Requête</th>
-        <th>Caméra</th>
-        <th>Source</th>
-        <th>Score</th>
-        <th>Détails</th>
+        <th>Frame capturée</th><th>Horodatage</th><th>Requête</th>
+        <th>Caméra</th><th>Source</th><th>Score</th><th>Détails</th>
       </tr>
     </thead>
     <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#999">Aucun log</td></tr>'}</tbody>
@@ -187,20 +179,10 @@ export class LogStore {
 </body>
 </html>`;
 
-    // Ouvrir dans un nouvel onglet → Ctrl+P ou bouton Imprimer du navigateur
     const win = window.open('', '_blank');
     win.document.write(html);
     win.document.close();
-    // Déclencher l'impression automatiquement après chargement des images
     win.onload = () => win.print();
   }
-}
-  async exportJson() {
-    const d = await this.getAll();
-    const b = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
-    const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(b), download: 'vigimap-logs.json'
-    });
-    a.click();
-  }
-}
+
+} // ← UNE SEULE accolade fermante ici
