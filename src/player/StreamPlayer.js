@@ -1,7 +1,7 @@
 // ============================================================
-// StreamPlayer.js — v2.4
-// Fix : loadSource passe aussi par le proxy pour les URLs externes
-//       Correction du double-encoding /?url=/?url=
+// StreamPlayer.js — v2.5
+// Fix : xhrSetup ne re-proxifie pas les URLs déjà proxifiées
+//       (évite le double-encoding → HTTP 400 sur les segments HLS)
 // ============================================================
 
 const HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
@@ -37,17 +37,32 @@ function ytId(url) {
 function getProxyBase() {
   try {
     const raw = (JSON.parse(localStorage.getItem('vigimap_settings') || '{}')).proxyUrl || '';
-    // Nettoyer : enlever slash final et éventuel /?url= résiduel
-    return raw.trim().replace(/\/?(\?url=.*)?$/, '');
+    return raw.trim().replace(/\/(\?url=.*)?$/, '');
   } catch (_) { return ''; }
 }
 
-/** Enveloppe une URL dans le proxy seulement si elle n'est pas déjà proxifiée */
+/**
+ * Enveloppe une URL dans le proxy SEULEMENT si :
+ * - une base proxy est définie
+ * - l'URL n'est pas déjà proxifiée via cette base
+ * - l'URL n'est pas un blob local
+ */
 function proxyWrap(base, url) {
   if (!base) return url;
-  if (url.startsWith(base)) return url;           // déjà via ce proxy
-  if (url.startsWith('blob:')) return url;        // blob local, pas de proxy
+  if (!url) return url;
+  if (url.startsWith('blob:')) return url;
+  // Déjà proxifiée ? (commence par la base OU contient /?url= de ce proxy)
+  if (url.startsWith(base)) return url;
   return `${base}/?url=${encodeURIComponent(url)}`;
+}
+
+/**
+ * Vérifie si une URL est déjà proxifiée par la base donnée.
+ * Utilisé dans xhrSetup pour éviter le double-wrap.
+ */
+function isAlreadyProxied(base, url) {
+  if (!base || !url) return false;
+  return url.startsWith(base);
 }
 
 export class StreamPlayer {
@@ -116,12 +131,8 @@ export class StreamPlayer {
 
     // ── 3. HLS / m3u8 ────────────────────────────────────────────────────────
     if (isHlsUrl(url, this.cam.streamType)) {
-      // Forcer HTTPS
-      const safeUrl = url.replace(/^http:\/\//i, 'https://');
+      const safeUrl   = url.replace(/^http:\/\//i, 'https://');
       const proxyBase = getProxyBase();
-
-      // L'URL de chargement initiale passe aussi par le proxy
-      // (évite le ManifestLoadError sur les domaines externes sans CORS)
       const sourceUrl = proxyWrap(proxyBase, safeUrl);
 
       wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">⏳ Chargement flux…</span>`;
@@ -140,16 +151,18 @@ export class StreamPlayer {
             fragLoadingTimeOut:     20000,
           };
 
-          // xhrSetup : proxy pour tous les segments/playlists suivants
+          // xhrSetup : proxy UNIQUEMENT si l'URL n'est pas déjà proxifiée
+          // Évite le double-encoding → HTTP 400 sur les sous-playlists YouTube
           if (proxyBase) {
             hlsConfig.xhrSetup = (xhr, reqUrl) => {
+              if (isAlreadyProxied(proxyBase, reqUrl)) return; // déjà proxifiée → ne rien faire
               const wrapped = proxyWrap(proxyBase, reqUrl);
-              if (wrapped !== reqUrl) xhr.open('GET', wrapped, true);
+              xhr.open('GET', wrapped, true);
             };
           }
 
           this._hls = new HlsClass(hlsConfig);
-          this._hls.loadSource(sourceUrl);   // ← proxifié dès le départ
+          this._hls.loadSource(sourceUrl);
           this._hls.attachMedia(v);
           this._hls.on(HlsClass.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
           this._hls.on(HlsClass.Events.ERROR, (_, data) => {
