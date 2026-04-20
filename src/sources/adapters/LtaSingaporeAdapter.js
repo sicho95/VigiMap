@@ -9,7 +9,7 @@ export class LtaSingaporeAdapter extends BaseAdapter{
       if(!r.ok)throw new Error(`HTTP ${r.status}`);
       const j=await r.json();
       const cams=j.value?.items?.[0]?.cameras||[];
-      if(!cams.length)console.warn('[VigiMap] LTA: 0 caméras reçues');
+      if(!cams.length)console.debug('[VigiMap] LTA: 0 caméras reçues');
       return cams.map(c=>this.norm({
         id:'lta_'+c.camera_id,
         name:'LTA #'+c.camera_id,
