@@ -1,27 +1,30 @@
 import { getSetting, setSetting } from './SettingsManager.js';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// initSettingsPanel()
+//
+// NE PAS appeler au DOMContentLoaded — appeler à l'ouverture du panneau.
+// Pattern recommandé dans app.js :
+//
+//   btnSettings.addEventListener('click', () => {
+//     settingsBody.classList.toggle('hidden');
+//     if (!settingsBody.classList.contains('hidden')) initSettingsPanel();
+//   });
+//
+// La fonction est idempotente : appeler plusieurs fois ne double pas les listeners.
+// ─────────────────────────────────────────────────────────────────────────────
 export function initSettingsPanel() {
-  // Le DOM peut ne pas encore avoir #settings-inner au moment du call
-  // On utilise une boucle rAF avec fallback MutationObserver
-  _tryInit(0);
-}
-
-function _tryInit(attempt) {
   const inner = document.getElementById('settings-inner');
-  if (inner) {
-    _render(inner);
+  if (!inner) {
+    // Ne devrait pas arriver si appelé à l'ouverture du panneau,
+    // mais on garde un fallback silencieux
+    console.warn('[SettingsPanel] #settings-inner introuvable dans le DOM');
     return;
   }
-  if (attempt < 20) {
-    requestAnimationFrame(() => _tryInit(attempt + 1));
-    return;
-  }
-  // Dernier recours : MutationObserver sur body
-  const obs = new MutationObserver(() => {
-    const el = document.getElementById('settings-inner');
-    if (el) { obs.disconnect(); _render(el); }
-  });
-  obs.observe(document.body, { childList: true, subtree: true });
+  // Éviter de re-rendre si déjà initialisé
+  if (inner.dataset.ready === '1') return;
+  inner.dataset.ready = '1';
+  _render(inner);
 }
 
 function _render(inner) {
@@ -97,35 +100,33 @@ function _render(inner) {
     </div>
 
     <div class="settings-footer">
-      <button class="btn btn--primary" data-k="save">💾 Enregistrer</button>
+      <button class="btn btn--primary" id="settings-save-btn">💾 Enregistrer</button>
       <span id="settings-saved-msg" style="display:none;color:var(--color-success);font-size:12px;margin-left:8px">
         ✅ Enregistré — rechargement…
       </span>
     </div>
   `;
 
-  // Bind sur inner — jamais sur document pour éviter le null
-  inner.querySelector('[data-k="save"]').addEventListener('click', () => {
+  document.getElementById('settings-save-btn').addEventListener('click', () => {
     const v  = k => inner.querySelector(`[data-k="${k}"]`)?.value;
     const ck = k => inner.querySelector(`[data-k="${k}"]`)?.checked;
 
-    setSetting('proxyUrl',           (v('proxyUrl') || '').trim());
-    setSetting('snapshotRefresh',    +(v('snapRefresh')) || 30);
-    setSetting('tfBackend',          v('tfBackend'));
+    setSetting('proxyUrl',            (v('proxyUrl') || '').trim());
+    setSetting('snapshotRefresh',     +(v('snapRefresh')) || 30);
+    setSetting('tfBackend',           v('tfBackend'));
     setSetting('confidenceThreshold', +(v('conf')) / 100);
-    setSetting('showOffline',        ck('showOffline'));
-    setSetting('captureOnMatch',     ck('captureOnMatch'));
+    setSetting('showOffline',         ck('showOffline'));
+    setSetting('captureOnMatch',      ck('captureOnMatch'));
 
     const ak2 = getSetting('apiKeys') || {};
     const wk  = (v('windyKey') || '').trim();
     const ok  = (v('owdbKey')  || '').trim();
     const nk  = (v('nswKey')   || '').trim();
-    if (wk) ak2.windyKey       = wk;
+    if (wk) ak2.windyKey        = wk;
     if (ok) ak2.openwebcamdbKey = ok;
-    if (nk) ak2.nswKey          = nk;
+    if (nk) ak2.nswKey           = nk;
     setSetting('apiKeys', ak2);
 
-    // Fermer le panneau avant reload
     document.getElementById('settings-body')?.classList.add('hidden');
     const msg = document.getElementById('settings-saved-msg');
     if (msg) msg.style.display = '';
