@@ -8,7 +8,6 @@
 //   - destroy() révoque le blob URL des fichiers locaux
 // ============================================================
 
-// URL CDN hls.js — utilisée si Hls n'est pas déjà global (chargé via <script> dans index.html)
 const HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
 
 function loadHls() {
@@ -38,11 +37,16 @@ export class StreamPlayer {
   }
 
   _build() {
-    const el     = document.createElement('div');
+    const el = document.createElement('div');
     el.className = 'stream-player';
-    const cvLabel = this.cam.cvEnabled
+
+    // ✅ FIX : streamType==='local' est toujours CV-capable (vidéo dans le DOM)
+    // cvEnabled peut être explicitement false pour forcer iframe
+    const isCvCapable = this.cam.streamType === 'local' || this.cam.cvEnabled === true;
+    const cvLabel = isCvCapable
       ? `<span class="badge" style="background:rgba(63,185,80,.2);color:#3fb950;font-size:9px">CV ✓</span>`
       : `<span class="badge" style="background:rgba(248,81,73,.1);color:#f85149;font-size:9px">CV iframe</span>`;
+
     el.innerHTML = `
       <div class="stream-player__header">
         <span class="stream-player__title" title="${this.cam.name}">${this.cam.name}</span>
@@ -65,12 +69,16 @@ export class StreamPlayer {
       return;
     }
 
-    // ── Fichier local (blob URL, même document)
+    // ── Fichier local (blob URL)
     if (this.cam.streamType === 'local') {
       const v = document.createElement('video');
       v.style.cssText = 'width:100%;max-height:200px;background:#000';
-      v.muted = true; v.controls = true; v.loop = true;
-      v.src = url;
+      v.muted    = true;
+      v.controls = true;
+      // ✅ FIX loop : PAS de loop par défaut sur les fichiers importés
+      // VideoImporter.js gère lui-même play/pause autour de l'analyse
+      v.loop = false;
+      v.src  = url;
       v.play().catch(() => {});
       wrap.appendChild(v);
       return;
@@ -80,12 +88,11 @@ export class StreamPlayer {
     if (isHlsUrl(url, this.cam.streamType)) {
       const safeUrl = url.replace(/^http:\/\//i, 'https://');
 
-      // ✅ Récupérer le proxy depuis localStorage pour router TOUS les segments HLS
-      // YouTube bloque CORS sur les sous-playlists /hls_playlist/ — il faut proxifier
-      const proxyBase = (localStorage.getItem('vigimap_settings')
-        ? (JSON.parse(localStorage.getItem('vigimap_settings') || '{}')).proxyUrl || ''
-        : ''
-      ).trim().replace(/\/$/, '');
+      const proxyBase = (() => {
+        try {
+          return (JSON.parse(localStorage.getItem('vigimap_settings') || '{}')).proxyUrl || '';
+        } catch (_) { return ''; }
+      })().trim().replace(/\/$/, '');
 
       wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">⏳ Chargement flux…</span>`;
 
@@ -97,24 +104,17 @@ export class StreamPlayer {
 
         if (HlsClass.isSupported()) {
           const hlsConfig = {
-            enableWorker:           true,
-            lowLatencyMode:         true,
+            enableWorker: true, lowLatencyMode: true,
             manifestLoadingTimeOut: 15000,
             levelLoadingTimeOut:    15000,
             fragLoadingTimeOut:     20000,
           };
-
-          // Si proxy dispo : router toutes les requêtes HLS via le proxy
-          // Nécessaire pour les sous-playlists YouTube qui bloquent CORS
           if (proxyBase) {
             hlsConfig.xhrSetup = (xhr, reqUrl) => {
-              // Ne pas proxifier les URLs déjà proxifiées
-              if (!reqUrl.includes(proxyBase)) {
+              if (!reqUrl.includes(proxyBase))
                 xhr.open('GET', `${proxyBase}/?url=${encodeURIComponent(reqUrl)}`, true);
-              }
             };
           }
-
           this._hls = new HlsClass(hlsConfig);
           this._hls.loadSource(safeUrl);
           this._hls.attachMedia(v);
@@ -138,12 +138,12 @@ export class StreamPlayer {
       return;
     }
 
-    // ── YouTube embed (iframe)
+    // ── YouTube embed (iframe — pas de CV possible)
     const ytId = this._ytId(url);
     if (ytId) {
       const ifr = document.createElement('iframe');
       ifr.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=1`;
-      Object.assign(ifr.style, { width:'100%', height:'200px', border:'none' });
+      Object.assign(ifr.style, { width: '100%', height: '200px', border: 'none' });
       ifr.allow = 'autoplay; encrypted-media';
       ifr.allowFullscreen = true;
       wrap.appendChild(ifr);
@@ -157,7 +157,7 @@ export class StreamPlayer {
     const load = () => { img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(); };
     load();
     img.onerror = () => { img.alt = 'Flux indisponible'; };
-    this._iv = setInterval(load, ref * 1000);
+    this._iv    = setInterval(load, ref * 1000);
     wrap.appendChild(img);
   }
 
