@@ -1,5 +1,5 @@
 // ============================================================
-// StreamPlayer.js — v2.1
+// StreamPlayer.js — v2.2
 // Corrections :
 //   - Bloc 'local' : <video> natif, pas de setInterval → stop erreurs blob Firefox
 //   - Bloc HLS : détection élargie + fallback sur streamType:'hls'
@@ -9,16 +9,13 @@
 // ============================================================
 
 // URL CDN hls.js — utilisée si Hls n'est pas déjà global (chargé via <script> dans index.html)
-// ── URL CDN hls.js
 const HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
 
 function loadHls() {
   if (typeof Hls !== 'undefined') return Promise.resolve(Hls);
   return new Promise((resolve, reject) => {
-    const s   = document.createElement('script');
-    s.src     = HLS_CDN;
-    s.onload  = () => resolve(Hls);
-    s.onerror = reject;
+    const s = document.createElement('script');
+    s.src = HLS_CDN; s.onload = () => resolve(Hls); s.onerror = reject;
     document.head.appendChild(s);
   });
 }
@@ -46,7 +43,6 @@ export class StreamPlayer {
     const cvLabel = this.cam.cvEnabled
       ? `<span class="badge" style="background:rgba(63,185,80,.2);color:#3fb950;font-size:9px">CV ✓</span>`
       : `<span class="badge" style="background:rgba(248,81,73,.1);color:#f85149;font-size:9px">CV iframe</span>`;
-
     el.innerHTML = `
       <div class="stream-player__header">
         <span class="stream-player__title" title="${this.cam.name}">${this.cam.name}</span>
@@ -56,8 +52,7 @@ export class StreamPlayer {
       </div>
       <div class="stream-player__media" id="sp-media-${this.cam.id}"></div>
       <canvas style="position:absolute;top:30px;left:0;pointer-events:none;width:100%;height:calc(100% - 30px)"
-              id="sp-cv-${this.cam.id}"></canvas>
-    `;
+              id="sp-cv-${this.cam.id}"></canvas>`;
     el.querySelector('[data-close]').onclick = () => { this.destroy(); this.onClose?.(); };
     return el;
   }
@@ -65,18 +60,17 @@ export class StreamPlayer {
   play() {
     const wrap = this.el.querySelector('.stream-player__media');
     const url  = this.cam.streamUrl || this.cam.snapshotUrl;
-
     if (!url) {
       wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">Aucun flux</span>`;
       return;
     }
 
-    // ── Fichier local (blob URL dans le même document)
+    // ── Fichier local (blob URL, même document)
     if (this.cam.streamType === 'local') {
-      const v         = document.createElement('video');
+      const v = document.createElement('video');
       v.style.cssText = 'width:100%;max-height:200px;background:#000';
       v.muted = true; v.controls = true; v.loop = true;
-      v.src   = url;
+      v.src = url;
       v.play().catch(() => {});
       wrap.appendChild(v);
       return;
@@ -84,25 +78,44 @@ export class StreamPlayer {
 
     // ── HLS / m3u8
     if (isHlsUrl(url, this.cam.streamType)) {
-      // ✅ Forcer HTTPS — bloque le mixed content sur GitHub Pages (http -> https)
       const safeUrl = url.replace(/^http:\/\//i, 'https://');
+
+      // ✅ Récupérer le proxy depuis localStorage pour router TOUS les segments HLS
+      // YouTube bloque CORS sur les sous-playlists /hls_playlist/ — il faut proxifier
+      const proxyBase = (localStorage.getItem('vigimap_settings')
+        ? (JSON.parse(localStorage.getItem('vigimap_settings') || '{}')).proxyUrl || ''
+        : ''
+      ).trim().replace(/\/$/, '');
 
       wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">⏳ Chargement flux…</span>`;
 
       loadHls().then(HlsClass => {
         wrap.innerHTML = '';
-        const v         = document.createElement('video');
+        const v = document.createElement('video');
         v.style.cssText = 'width:100%;max-height:200px;background:#000';
         v.muted = true; v.controls = true;
 
         if (HlsClass.isSupported()) {
-          this._hls = new HlsClass({
+          const hlsConfig = {
             enableWorker:           true,
             lowLatencyMode:         true,
             manifestLoadingTimeOut: 15000,
             levelLoadingTimeOut:    15000,
             fragLoadingTimeOut:     20000,
-          });
+          };
+
+          // Si proxy dispo : router toutes les requêtes HLS via le proxy
+          // Nécessaire pour les sous-playlists YouTube qui bloquent CORS
+          if (proxyBase) {
+            hlsConfig.xhrSetup = (xhr, reqUrl) => {
+              // Ne pas proxifier les URLs déjà proxifiées
+              if (!reqUrl.includes(proxyBase)) {
+                xhr.open('GET', `${proxyBase}/?url=${encodeURIComponent(reqUrl)}`, true);
+              }
+            };
+          }
+
+          this._hls = new HlsClass(hlsConfig);
           this._hls.loadSource(safeUrl);
           this._hls.attachMedia(v);
           this._hls.on(HlsClass.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
@@ -113,10 +126,8 @@ export class StreamPlayer {
             }
           });
           wrap.appendChild(v);
-
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-          v.src = safeUrl;
-          v.play().catch(() => {});
+          v.src = safeUrl; v.play().catch(() => {});
           wrap.appendChild(v);
         } else {
           wrap.innerHTML = `<span style="color:var(--text-3);font-size:11px;padding:8px">HLS non supporté</span>`;
@@ -127,26 +138,26 @@ export class StreamPlayer {
       return;
     }
 
-    // ── YouTube embed
+    // ── YouTube embed (iframe)
     const ytId = this._ytId(url);
     if (ytId) {
-      const ifr           = document.createElement('iframe');
-      ifr.src             = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=1`;
+      const ifr = document.createElement('iframe');
+      ifr.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=1`;
       Object.assign(ifr.style, { width:'100%', height:'200px', border:'none' });
-      ifr.allow           = 'autoplay; encrypted-media';
+      ifr.allow = 'autoplay; encrypted-media';
       ifr.allowFullscreen = true;
       wrap.appendChild(ifr);
       return;
     }
 
     // ── Snapshot image avec refresh (MJPEG / Insecam)
-    const img         = document.createElement('img');
+    const img = document.createElement('img');
     img.style.cssText = 'width:100%;max-height:200px;object-fit:cover';
     const ref  = parseInt(localStorage.getItem('vigimap_snap_refresh') || '30', 10);
     const load = () => { img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(); };
     load();
     img.onerror = () => { img.alt = 'Flux indisponible'; };
-    this._iv    = setInterval(load, ref * 1000);
+    this._iv = setInterval(load, ref * 1000);
     wrap.appendChild(img);
   }
 
@@ -154,24 +165,23 @@ export class StreamPlayer {
     try {
       const u = new URL(url);
       if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
-      if (u.hostname === 'youtu.be')          return u.pathname.slice(1).split('?')[0];
+      if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
     } catch (_) {}
     const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
     return m ? m[1] : null;
   }
 
   getCanvas()  { return this.el.querySelector('canvas'); }
-  getVideo()   { return this.el.querySelector('video');  }
-  getImg()     { return this.el.querySelector('img');    }
+  getVideo()   { return this.el.querySelector('video'); }
+  getImg()     { return this.el.querySelector('img'); }
   getCamId()   { return this.cam.id; }
   isCvReady()  { return !!(this.el.querySelector('video') || this.el.querySelector('img')); }
 
   destroy() {
     this._hls?.destroy();
     clearInterval(this._iv);
-    if (this.cam.streamType === 'local' && this.cam.streamUrl?.startsWith('blob:')) {
+    if (this.cam.streamType === 'local' && this.cam.streamUrl?.startsWith('blob:'))
       URL.revokeObjectURL(this.cam.streamUrl);
-    }
     this.el.remove();
   }
 }
