@@ -294,4 +294,4 @@ function bindUI() {
   document.getElementById('btn-logs')?.addEventListener('click', () => {
     togglePanel('log-panel-side');
     logPanel.refresh();
-  })
+  });
