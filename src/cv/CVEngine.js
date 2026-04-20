@@ -1,11 +1,12 @@
-// CVEngine.js — v2.1
-// FIX: alias addFaceRef() -> registerFaceDescriptor() (appelé par QueryEditor)
+// CVEngine.js — v2.2
+// FIX: face-api -> @vladmandic/face-api (compatible TF.js 4.x)
+// FIX: alias addFaceRef() -> registerFaceDescriptor()
 // FIX: analyzeImage() pour photos importées
-// FIX: analyzeOnce() avec capture frameB64
 
 const TFJS_CDN    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
 const COCOSD_CDN  = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js';
-const FACEAPI_CDN = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
+// ✅ vladmandic/face-api — compatible TF.js 4.x (face-api.js@0.22.2 ne l'est pas)
+const FACEAPI_CDN = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
 
 const MODELS_LOCAL = '/VigiMap/models';
 const MODELS_CDN   = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
@@ -16,8 +17,8 @@ export class CVEngine {
     this._ready     = false;
     this._cocoSsd   = null;
     this._faceReady = false;
-    this._players   = new Map(); // camId → { player, queries, interval }
-    this._refFaces  = new Map(); // queryId → Float32Array descriptor
+    this._players   = new Map();
+    this._refFaces  = new Map();
     this._init();
   }
 
@@ -55,26 +56,24 @@ export class CVEngine {
     console.error('[CVEngine] Impossible de charger les modèles face-api');
   }
 
-  // ── Enregistrer un visage de référence ──────────────────────────────────────
   async registerFaceDescriptor(queryId, imageEl) {
     if (!this._faceReady)
-      throw new Error('Modèles face-api non chargés. Vérifiez /models/ ou la connexion CDN.');
+      throw new Error('Modèles face-api non chargés.');
     const det = await faceapi
       .detectSingleFace(imageEl, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
     if (!det)
-      throw new Error('Aucun visage détecté sur la photo de référence. Photo nette, de face, bien éclairée.');
+      throw new Error('Aucun visage détecté. Utilisez une photo nette, de face, bien éclairée.');
     this._refFaces.set(queryId, det.descriptor);
     return det;
   }
 
-  // ── ALIAS — QueryEditor appelle cv.addFaceRef(), on redirige ────────────────
+  // Alias appelé par QueryEditor
   async addFaceRef(queryId, imageEl) {
     return this.registerFaceDescriptor(queryId, imageEl);
   }
 
-  // ── Analyser une image statique (photo importée depuis VideoImporter) ────────
   async analyzeImage(imageEl, queries) {
     if (!this._ready) return null;
     const canvas  = document.createElement('canvas');
@@ -82,7 +81,6 @@ export class CVEngine {
     canvas.height = imageEl.naturalHeight || imageEl.height || 480;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageEl, 0, 0, canvas.width, canvas.height);
-
     const results = [];
     for (const q of queries) {
       const r = await this._matchQuery(canvas, ctx, q);
@@ -95,7 +93,6 @@ export class CVEngine {
     return best.result;
   }
 
-  // ── Analyser une frame depuis un StreamPlayer ────────────────────────────────
   async _analyzeFrame(player, queries) {
     if (!this._ready) return null;
     const video  = player.getVideo();
@@ -103,13 +100,11 @@ export class CVEngine {
     const canvas = player.getCanvas();
     const source = video || img;
     if (!source || !canvas) return null;
-
     canvas.width  = source.videoWidth  || source.naturalWidth  || source.clientWidth  || 640;
     canvas.height = source.videoHeight || source.naturalHeight || source.clientHeight || 480;
     const ctx = canvas.getContext('2d');
     try { ctx.drawImage(source, 0, 0, canvas.width, canvas.height); }
-    catch (e) { return null; } // CORS → skip silencieux
-
+    catch (e) { return null; }
     const results = [];
     for (const q of queries) {
       const r = await this._matchQuery(canvas, ctx, q);
@@ -121,7 +116,6 @@ export class CVEngine {
   async _matchQuery(canvas, ctx, query) {
     const matched = { matched: false, globalScore: 0, matchDetails: [] };
 
-    // Objets COCO-SSD
     if (query.type === 'object' && this._cocoSsd) {
       const preds = await this._cocoSsd.detect(canvas);
       for (const p of preds) {
@@ -137,7 +131,6 @@ export class CVEngine {
       }
     }
 
-    // Reconnaissance faciale
     if (query.type === 'face' && this._faceReady && this._refFaces.has(query.id)) {
       const refDesc    = this._refFaces.get(query.id);
       const detections = await faceapi
@@ -159,16 +152,13 @@ export class CVEngine {
     return matched;
   }
 
-  // ── API publique ─────────────────────────────────────────────────────────────
   async start(player, queries) {
     const id = player.getCamId();
     this.stop(id);
     const interval = setInterval(async () => {
       const results = await this._analyzeFrame(player, queries);
       if (!results) return;
-      for (const { query, result } of results) {
-        this.onMatch?.(id, query, result, null);
-      }
+      for (const { query, result } of results) this.onMatch?.(id, query, result, null);
     }, 2000);
     this._players.set(id, { player, queries, interval });
   }
@@ -189,7 +179,6 @@ export class CVEngine {
   isFaceReady() { return this._faceReady; }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function _loadScript(src) {
   return new Promise((res, rej) => {
     if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
