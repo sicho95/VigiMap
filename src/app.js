@@ -184,15 +184,15 @@ function onCamClick(cam) {
     </div>
     <div class="popup-meta">
       <span>${cam.sourceId || ''}</span>
-      ${cam.country ? `<span>${cam.country}</span>` : ''}
-      ${cam.city    ? `<span>${cam.city}</span>`    : ''}
+      ${cam.country ? '<span>' + cam.country + '</span>' : ''}
+      ${cam.city    ? '<span>' + cam.city + '</span>' : ''}
     </div>
-    ${cam.streamUrl ? `<div class="popup-url"><a href="${cam.streamUrl}" target="_blank" rel="noopener noreferrer">🔗 Flux</a></div>` : ''}
+    ${cam.streamUrl ? '<div class="popup-url"><a href="' + cam.streamUrl + '" target="_blank" rel="noopener noreferrer">🔗 Flux</a></div>' : ''}
     <div class="popup-actions">
       <button class="btn btn--primary btn--sm" id="popup-pin">
         ${pinned ? '📌 Épinglé' : '📌 Épingler'}
       </button>
-      ${isYt ? `<button class="btn btn--ghost btn--sm" id="popup-edit">✏️ Éditer</button>` : ''}
+      ${isYt ? '<button class="btn btn--ghost btn--sm" id="popup-edit">✏️ Éditer</button>' : ''}
     </div>
   `;
 
@@ -294,5 +294,119 @@ function bindUI() {
   document.getElementById('btn-logs')?.addEventListener('click', () => {
     togglePanel('log-panel-side');
     logPanel.refresh();
-  })
-   };
+  });
+
+  // ── Panneau Import ──
+  document.getElementById('btn-import')?.addEventListener('click', () => {
+    togglePanel('import-panel');
+  });
+  document.getElementById('btn-import-close')?.addEventListener('click', () => {
+    hidePanel('import-panel');
+  });
+  document.getElementById('btn-import-run')?.addEventListener('click', () => {
+    importer.run();
+    hidePanel('import-panel');
+  });
+
+  // ── Toggle CV on/off ──
+  const btnCvToggle = document.getElementById('btn-cv-toggle');
+  btnCvToggle?.addEventListener('click', () => {
+    const isOn = btnCvToggle.dataset.on === '1';
+    if (isOn) {
+      cv.stopAll();
+      btnCvToggle.dataset.on = '0';
+      btnCvToggle.textContent = 'CV On';
+      btnCvToggle.classList.remove('btn--active');
+    } else {
+      refreshCV();
+      btnCvToggle.dataset.on = '1';
+      btnCvToggle.textContent = 'CV Off';
+      btnCvToggle.classList.add('btn--active');
+    }
+  });
+
+  // ── Paramètres ──
+  document.getElementById('btn-settings')?.addEventListener('click', () => {
+    const body = document.getElementById('settings-body');
+    if (!body) return;
+    const wasHidden = body.classList.toggle('hidden');
+    if (!wasHidden) initSettingsPanel();
+  });
+  document.getElementById('btn-settings-close')?.addEventListener('click', () => {
+    document.getElementById('settings-body')?.classList.add('hidden');
+  });
+
+  // ── Rechargement après sauvegarde des paramètres ──
+  document.addEventListener('vigimap:settings-saved', () => loadCams());
+}
+
+// ─── Helpers panneaux ─────────────────────────────────────────────────────────
+function togglePanel(id) {
+  document.getElementById(id)?.classList.toggle('hidden');
+}
+function hidePanel(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+// ─── Navigation mobile ────────────────────────────────────────────────────────
+function initMobileNav() {
+  const PANELS = {
+    map:      'map-panel',
+    streams:  'streams-panel',
+    library:  'library-panel',
+    queries:  'query-panel',
+    logs:     'log-panel-side',
+  };
+
+  const tabs = document.querySelectorAll('.mobile-nav__btn[data-tab]');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      // Masquer tous les panneaux latéraux connus
+      Object.values(PANELS).forEach(pid => {
+        document.getElementById(pid)?.classList.add('hidden');
+      });
+      // Afficher le panneau cible
+      const panelId = PANELS[target];
+      if (panelId) document.getElementById(panelId)?.classList.remove('hidden');
+
+      // Actualisation si besoin
+      if (target === 'library') libPanel?.refresh();
+      if (target === 'logs')    logPanel?.refresh();
+
+      // Styles actifs
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
+}
+
+// ─── Loader ───────────────────────────────────────────────────────────────────
+function setLoading(on) {
+  const bar = document.getElementById('loading-bar');
+  if (!bar) return;
+  bar.style.display = on ? 'block' : 'none';
+}
+
+// ─── Flash notification ───────────────────────────────────────────────────────
+function flash(msg, duration = 5000, type = 'info') {
+  let el = document.getElementById('flash-msg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'flash-msg';
+    el.style.cssText = [
+      'position:fixed', 'bottom:72px', 'left:50%', 'transform:translateX(-50%)',
+      'max-width:90vw', 'padding:8px 16px', 'border-radius:8px',
+      'font-size:13px', 'z-index:9999', 'pointer-events:none',
+      'transition:opacity .3s',
+    ].join(';');
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.background  = type === 'error' ? '#c0392b' : '#2d2d2d';
+  el.style.color       = '#fff';
+  el.style.opacity     = '1';
+  el.style.display     = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
