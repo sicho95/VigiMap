@@ -1,12 +1,18 @@
-// CVEngine.js — v2.2
-// FIX: face-api -> @vladmandic/face-api (compatible TF.js 4.x)
-// FIX: alias addFaceRef() -> registerFaceDescriptor()
-// FIX: analyzeImage() pour photos importées
+// CVEngine.js — v2.3
+// FIX: "kernel already registered" — face-api embarque son propre TF.js
+// Solution : utiliser face-api/dist/face-api.esm.nobundle.js qui n'inclut PAS TF.js
+// Nécessite que TF.js soit déjà chargé AVANT (index.html ou CVEngine._init)
 
 const TFJS_CDN    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
 const COCOSD_CDN  = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js';
-// ✅ vladmandic/face-api — compatible TF.js 4.x (face-api.js@0.22.2 ne l'est pas)
-const FACEAPI_CDN = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
+
+// ✅ FIX kernel already registered :
+// face-api.esm-nobundle = pas de TF.js embarqué → pas de double registration
+// Requis : TF.js déjà présent dans window.tf avant ce chargement
+const FACEAPI_CDN = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.esm-nobundle.js';
+
+// Fallback si nobundle échoue (moins probable)
+const FACEAPI_CDN_FALLBACK = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
 
 const MODELS_LOCAL = '/VigiMap/models';
 const MODELS_CDN   = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
@@ -23,9 +29,20 @@ export class CVEngine {
   }
 
   async _init() {
+    // ① TF.js en premier — si déjà dans window.tf (chargé par index.html), on skip
     if (!window.tf)      await _loadScript(TFJS_CDN);
     if (!window.cocoSsd) await _loadScript(COCOSD_CDN);
-    if (!window.faceapi) await _loadScript(FACEAPI_CDN);
+
+    // ② face-api SANS TF.js embarqué — évite la double registration des kernels
+    if (!window.faceapi) {
+      try {
+        await _loadScript(FACEAPI_CDN);
+      } catch (_) {
+        // fallback sur la version complète si nobundle indisponible
+        await _loadScript(FACEAPI_CDN_FALLBACK);
+      }
+    }
+
     await tf.ready();
 
     try {
@@ -39,7 +56,17 @@ export class CVEngine {
   }
 
   async _loadFaceModels() {
-    for (const base of [MODELS_LOCAL, MODELS_CDN]) {
+    // ✅ FIX : ne tenter /VigiMap/models que si les fichiers existent vraiment
+    // On probe d'abord silencieusement un seul fichier test pour éviter les 3 × 404
+    const bases = [];
+
+    const localOk = await _probeUrl(
+      `${window.location.origin}/VigiMap/models/ssd_mobilenetv1_model-weights_manifest.json`
+    );
+    if (localOk) bases.push(MODELS_LOCAL);
+    bases.push(MODELS_CDN); // CDN toujours en fallback
+
+    for (const base of bases) {
       try {
         await Promise.all([
           faceapi.nets.ssdMobilenetv1.loadFromUri(base),
@@ -50,11 +77,14 @@ export class CVEngine {
         console.log('[CVEngine] face-api models chargés depuis', base);
         return;
       } catch (e) {
-        console.warn('[CVEngine] face-api models depuis', base, ':', e.message);
+        if (base !== MODELS_CDN)
+          console.debug('[CVEngine] face-api models non dispo localement, passage au CDN');
       }
     }
     console.error('[CVEngine] Impossible de charger les modèles face-api');
   }
+
+  // ── Reste du code inchangé ────────────────────────────────────────────────
 
   async registerFaceDescriptor(queryId, imageEl) {
     if (!this._faceReady)
@@ -69,7 +99,6 @@ export class CVEngine {
     return det;
   }
 
-  // Alias appelé par QueryEditor
   async addFaceRef(queryId, imageEl) {
     return this.registerFaceDescriptor(queryId, imageEl);
   }
@@ -148,7 +177,6 @@ export class CVEngine {
         }
       }
     }
-
     return matched;
   }
 
@@ -179,6 +207,8 @@ export class CVEngine {
   isFaceReady() { return this._faceReady; }
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function _loadScript(src) {
   return new Promise((res, rej) => {
     if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
@@ -187,6 +217,15 @@ function _loadScript(src) {
     s.onerror = () => rej(new Error('Script load failed: ' + src));
     document.head.appendChild(s);
   });
+}
+
+// ✅ Probe silencieux : HEAD request pour vérifier l'existence d'un fichier
+// sans déclencher de console.error si 404
+async function _probeUrl(url) {
+  try {
+    const r = await fetch(url, { method: 'HEAD' });
+    return r.ok;
+  } catch (_) { return false; }
 }
 
 function _checkColor(pixels, targetColor, tolerance) {
