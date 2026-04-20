@@ -1,11 +1,7 @@
 // ============================================================
-// StreamPlayer.js — v2.2
-// Corrections :
-//   - Bloc 'local' : <video> natif, pas de setInterval → stop erreurs blob Firefox
-//   - Bloc HLS : détection élargie + fallback sur streamType:'hls'
-//     → gère les URLs Invidious /api/manifest/hls_variant/...index.m3u8
-//   - hls.js chargé dynamiquement si pas encore global (CDN fallback)
-//   - destroy() révoque le blob URL des fichiers locaux
+// StreamPlayer.js — v2.3
+// Fix : check YouTube AVANT isHlsUrl() pour éviter le manifestLoadError
+//       sur les URLs youtube.com/watch?v=... qui contiennent "manifest"
 // ============================================================
 
 const HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
@@ -23,8 +19,19 @@ function isHlsUrl(url, streamType) {
   if (streamType === 'hls') return true;
   const u = url.toLowerCase();
   return u.includes('.m3u8') || u.includes('hls_variant') ||
-         u.includes('hls_playlist') || u.includes('manifest') ||
+         u.includes('hls_playlist') ||
          u.includes('googlevideo')  || u.includes('videoplayback');
+  // NOTE: 'manifest' retiré — trop générique, matchait les URLs YouTube
+}
+
+function ytId(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
+  } catch (_) {}
+  const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
 }
 
 export class StreamPlayer {
@@ -40,12 +47,11 @@ export class StreamPlayer {
     const el = document.createElement('div');
     el.className = 'stream-player';
 
-    // ✅ FIX : streamType==='local' est toujours CV-capable (vidéo dans le DOM)
-    // cvEnabled peut être explicitement false pour forcer iframe
-    const isCvCapable = this.cam.streamType === 'local' || this.cam.cvEnabled === true;
+    const isYt = !!ytId(this.cam.streamUrl || this.cam.snapshotUrl || '');
+    const isCvCapable = !isYt && (this.cam.streamType === 'local' || this.cam.cvEnabled === true);
     const cvLabel = isCvCapable
       ? `<span class="badge" style="background:rgba(63,185,80,.2);color:#3fb950;font-size:9px">CV ✓</span>`
-      : `<span class="badge" style="background:rgba(248,81,73,.1);color:#f85149;font-size:9px">CV iframe</span>`;
+      : `<span class="badge" style="background:rgba(248,81,73,.1);color:#f85149;font-size:9px">${isYt ? 'YT iframe' : 'CV iframe'}</span>`;
 
     el.innerHTML = `
       <div class="stream-player__header">
@@ -69,22 +75,30 @@ export class StreamPlayer {
       return;
     }
 
-    // ── Fichier local (blob URL)
+    // ── 1. Fichier local (blob URL) ──────────────────────────────────────────
     if (this.cam.streamType === 'local') {
       const v = document.createElement('video');
       v.style.cssText = 'width:100%;max-height:200px;background:#000';
-      v.muted    = true;
-      v.controls = true;
-      // ✅ FIX loop : PAS de loop par défaut sur les fichiers importés
-      // VideoImporter.js gère lui-même play/pause autour de l'analyse
-      v.loop = false;
-      v.src  = url;
+      v.muted = true; v.controls = true; v.loop = false;
+      v.src = url;
       v.play().catch(() => {});
       wrap.appendChild(v);
       return;
     }
 
-    // ── HLS / m3u8
+    // ── 2. YouTube iframe (AVANT HLS — priorité absolue) ─────────────────────
+    const yid = ytId(url);
+    if (yid) {
+      const ifr = document.createElement('iframe');
+      ifr.src = `https://www.youtube.com/embed/${yid}?autoplay=1&mute=1&controls=1`;
+      Object.assign(ifr.style, { width: '100%', height: '200px', border: 'none' });
+      ifr.allow = 'autoplay; encrypted-media';
+      ifr.allowFullscreen = true;
+      wrap.appendChild(ifr);
+      return;
+    }
+
+    // ── 3. HLS / m3u8 ────────────────────────────────────────────────────────
     if (isHlsUrl(url, this.cam.streamType)) {
       const safeUrl = url.replace(/^http:\/\//i, 'https://');
 
@@ -121,8 +135,8 @@ export class StreamPlayer {
           this._hls.on(HlsClass.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
           this._hls.on(HlsClass.Events.ERROR, (_, data) => {
             if (data.fatal) {
-              console.warn('[StreamPlayer] HLS fatal error:', data.type, data.details);
-              wrap.innerHTML = `<span style="color:#f85149;font-size:11px;padding:8px">❌ Erreur flux — ${data.details}</span>`;
+              console.warn('[StreamPlayer] HLS fatal:', data.type, data.details);
+              wrap.innerHTML = `<span style="color:#f85149;font-size:11px;padding:8px">❌ Flux indisponible — ${data.details}</span>`;
             }
           });
           wrap.appendChild(v);
@@ -138,19 +152,7 @@ export class StreamPlayer {
       return;
     }
 
-    // ── YouTube embed (iframe — pas de CV possible)
-    const ytId = this._ytId(url);
-    if (ytId) {
-      const ifr = document.createElement('iframe');
-      ifr.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=1`;
-      Object.assign(ifr.style, { width: '100%', height: '200px', border: 'none' });
-      ifr.allow = 'autoplay; encrypted-media';
-      ifr.allowFullscreen = true;
-      wrap.appendChild(ifr);
-      return;
-    }
-
-    // ── Snapshot image avec refresh (MJPEG / Insecam)
+    // ── 4. Snapshot image avec refresh (MJPEG / Insecam / snapshot) ──────────
     const img = document.createElement('img');
     img.style.cssText = 'width:100%;max-height:200px;object-fit:cover';
     const ref  = parseInt(localStorage.getItem('vigimap_snap_refresh') || '30', 10);
@@ -159,16 +161,6 @@ export class StreamPlayer {
     img.onerror = () => { img.alt = 'Flux indisponible'; };
     this._iv    = setInterval(load, ref * 1000);
     wrap.appendChild(img);
-  }
-
-  _ytId(url) {
-    try {
-      const u = new URL(url);
-      if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
-      if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
-    } catch (_) {}
-    const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-    return m ? m[1] : null;
   }
 
   getCanvas()  { return this.el.querySelector('canvas'); }
