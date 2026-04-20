@@ -8,23 +8,36 @@
 .connectivity-toggle__thumb{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);font-size:12px;transform:translateX(0);transition:all 180ms ease;box-shadow:0 1px 6px rgba(0,0,0,.35)}
 .connectivity-toggle.is-online .connectivity-toggle__track{background:rgba(63,185,80,.18);border-color:rgba(63,185,80,.45)}
 .connectivity-toggle.is-online .connectivity-toggle__thumb{background:var(--success);transform:translateX(22px)}
+
+/* ── App layout desktop/tablette ── */
 .app-layout{display:grid;grid-template-columns:minmax(0,1fr) 400px;height:calc(100vh - 72px);margin-top:72px;overflow:hidden}
 .app-layout.is-map-hidden{grid-template-columns:0 minmax(0,1fr)}
 .map-panel{display:flex;flex-direction:column;overflow:hidden;position:relative;min-width:0}
 .map-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%}
 #map{flex:1;min-height:0;width:100%}
-.map-legend{position:absolute;left:12px;bottom:12px;display:flex;flex-wrap:wrap;gap:8px 12px;max-width:min(92%,680px);padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:rgba(22,27,34,.92);backdrop-filter:blur(6px);z-index:500}
-.legend-item{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-1);white-space:nowrap}
-.legend-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+/* ── Légende carte HTML (inline) ── */
+.map-legend{position:absolute;left:12px;bottom:12px;display:flex;flex-wrap:wrap;gap:6px 12px;max-width:min(92%,680px);padding:7px 10px;border:1px solid var(--border);border-radius:10px;background:rgba(22,27,34,.92);backdrop-filter:blur(6px);z-index:500;pointer-events:none}
+.legend-item{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-1);white-space:nowrap}
+.legend-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
 .legend-dot--live{background:var(--clr-live)}
 .legend-dot--delayed{background:var(--clr-delayed)}
 .legend-dot--offline{background:var(--clr-offline)}
 .legend-dot--pinned{background:var(--clr-pinned)}
 .legend-dot--unknown{background:var(--text-3)}
+
+/* ── Panneau droit ── */
 .side-panel{display:flex;flex-direction:column;background:var(--bg-surface);border-left:1px solid var(--border);overflow:hidden;position:relative;min-width:320px;max-width:100vw}
-.side-panel__resize-handle{position:absolute;left:0;top:0;bottom:0;width:8px;cursor:col-resize;z-index:20;background:linear-gradient(90deg,rgba(88,166,255,.18),transparent)}
-.side-panel__toggle-wrap{display:flex;justify-content:flex-start;padding:8px 12px 0 16px;flex-shrink:0}
-.side-panel__toggle{width:28px;height:28px;border-radius:999px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-1);cursor:pointer}
+
+/* Poignée de redimensionnement — bord gauche */
+.side-panel__resize-handle{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:20;background:transparent;transition:background 150ms}
+.side-panel__resize-handle:hover{background:rgba(88,166,255,.25)}
+
+/* Toggle carte — centré verticalement sur la bordure gauche */
+.side-panel__toggle-wrap{position:absolute;left:-14px;top:50%;transform:translateY(-50%);z-index:25;pointer-events:none}
+.side-panel__toggle{width:28px;height:40px;border-radius:6px 0 0 6px;border:1px solid var(--border);border-right:none;background:var(--bg-elevated);color:var(--text-1);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;pointer-events:all;transition:background 150ms}
+.side-panel__toggle:hover{background:var(--bg-hover)}
+
 .panel-section{display:flex;flex-direction:column;border-bottom:2px solid var(--border);flex-shrink:0}
 .panel-section.hidden{display:none}
 .panel-section--flex{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
@@ -32,41 +45,101 @@
 .panel-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;flex-shrink:0}
 .player-grid{padding:8px;display:grid;gap:8px;align-content:start}
 .player-empty{color:var(--text-3);font-size:12px;text-align:center;padding:24px 12px;grid-column:1/-1}
+
 .settings-panel{position:fixed;top:0;right:0;height:100%;width:360px;max-width:100vw;background:var(--bg-surface);border-left:1px solid var(--border);z-index:1200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform 200ms ease-out;overflow:hidden}
 .settings-panel:not(.hidden){transform:translateX(0)}
 .settings-panel__inner{padding:4px 12px 24px;overflow-y:auto;flex:1}
 .settings-section__title{font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;padding:14px 0 6px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border-s)}
 .settings-row label:first-child{font-size:12px;color:var(--text-2);flex:1}
+
+/* Popup caméra — desktop */
 .camera-popup{position:fixed;top:88px;right:412px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px;z-index:700;min-width:260px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.55)}
 .camera-popup.hidden{display:none}
+
 .loading-bar{position:fixed;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),#a371f7);z-index:9999;animation:ldbar 1.4s ease infinite}
 @keyframes ldbar{0%{transform:scaleX(0);transform-origin:left}60%{transform:scaleX(.7);transform-origin:left}100%{transform:scaleX(1);transform-origin:right}}
+
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:1300;padding:12px}
 .modal-overlay.hidden{display:none}
+
 .source-list{overflow-y:auto;max-height:280px;padding:4px 8px}
 .source-item{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border-s);font-size:12px}
 .source-item:last-child{border:none}
 .source-item__name{flex:1}
 .source-item__tag{font-size:10px;color:var(--text-3);background:var(--bg-elevated);padding:1px 5px;border-radius:3px}
+
+/* ── Nav mobile ── */
 .mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:62px;background:var(--bg-surface);border-top:1px solid var(--border);z-index:1000}
 .mobile-nav__btn{flex:1;background:none;border:none;color:var(--text-2);font-family:var(--ff-sans);font-size:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;transition:color 150ms;padding:4px}
 .mobile-nav__btn span{line-height:1}
 .mobile-nav__btn.active{color:var(--accent)}
-.mobile-nav__btn.is-disabled{opacity:.4;pointer-events:none}
-@media(max-width:1100px){.app-layout{grid-template-columns:minmax(0,1fr) 360px}.camera-popup{right:372px}}
-@media(max-width:1023px){.app-layout{grid-template-columns:minmax(0,1fr) 400px}.camera-popup{right:412px}}
+.mobile-nav__btn.is-disabled{opacity:.35;pointer-events:none}
+
+/* ── Tablette ── */
+@media(max-width:1100px){
+  .app-layout{grid-template-columns:minmax(0,1fr) 360px}
+  .camera-popup{right:372px}
+}
+
+/* ── Mobile strict < 768px ── */
 @media(max-width:767px){
   html,body{overflow:hidden}
+
   .navbar{min-height:76px;padding:8px 12px}
-  .app-layout{display:block;height:calc(100vh - 76px);margin-top:76px;margin-bottom:62px;overflow:hidden}
-  .side-panel{display:block;position:fixed;top:76px;left:0;right:0;bottom:62px;min-width:0;max-width:none;border-left:none;transform:translateX(100%);transition:transform 180ms ease;z-index:650}
+
+  /* Layout : une seule colonne plein écran */
+  .app-layout{
+    display:block;
+    width:100vw;
+    height:calc(100vh - 76px - 62px);
+    margin-top:76px;
+    overflow:hidden;
+  }
+
+  /* Carte plein écran */
+  .map-panel{
+    position:absolute;
+    top:0;left:0;right:0;bottom:0;
+    width:100%;
+    height:100%;
+  }
+
+  /* Panneau latéral = overlay plein écran par-dessus la carte */
+  .side-panel{
+    position:fixed;
+    top:76px;
+    left:0;
+    right:0;
+    bottom:62px;
+    width:100% !important;
+    min-width:0 !important;
+    border-left:none;
+    transform:translateX(100%);
+    transition:transform 180ms ease;
+    z-index:650;
+    overflow-y:auto;
+  }
   .side-panel.mobile-visible{transform:translateX(0)}
-  .side-panel__resize-handle,.side-panel__toggle-wrap{display:none}
-  .panel-section{display:none;height:100%}
+  .side-panel__resize-handle,
+  .side-panel__toggle-wrap{display:none}
+
+  /* Sections panel — cachées par défaut, active = flex */
+  .panel-section{display:none;height:auto;flex-shrink:0}
   .panel-section.mobile-active{display:flex}
-  .panel-section.panel-section--flex .player-grid{padding-bottom:16px}
+  .panel-section--flex.mobile-active{flex:1;min-height:0}
+
+  /* Nav bas */
   .mobile-nav{display:flex}
-  .camera-popup{top:auto;right:auto;bottom:calc(62px + 8px);left:50%;transform:translateX(-50%);min-width:90vw;max-width:90vw}
+
+  /* Popup caméra */
+  .camera-popup{
+    top:auto;right:auto;
+    bottom:calc(62px + 8px);
+    left:50%;transform:translateX(-50%);
+    min-width:90vw;max-width:90vw;
+  }
+
+  /* Légende carte */
   .map-legend{left:8px;right:8px;bottom:8px;max-width:none}
 }

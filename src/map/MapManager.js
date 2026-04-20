@@ -59,7 +59,7 @@ export class MapManager {
     this._map.addLayer(this._cluster);
     this._layer = new CameraLayer(this._cluster, mkIcon, this._onClick);
     this._injectStyles();
-    this._addLegend();
+    // Pas de légende Leaflet Control — la légende est dans le HTML (.map-legend)
     return this;
   }
 
@@ -83,28 +83,6 @@ export class MapManager {
     };
   }
 
-  // ── Légende Leaflet (bas-gauche) ──────────────────────────────────────────
-  _addLegend() {
-    const Legend = L.Control.extend({
-      options: { position: 'bottomleft' },
-      onAdd() {
-        const div = L.DomUtil.create('div', 'map-legend-ctrl');
-        div.innerHTML = [
-          ['#3fb950', 'Live (flux vidéo)'],
-          ['#d29922', 'Différé / Image fixe'],
-          ['#f85149', 'Hors ligne'],
-          ['#a371f7', 'Épinglée'],
-          ['#f0883e', 'Match CV'],
-          ['#484f58', 'Inconnu'],
-        ].map(([c, l]) =>
-          `<span><span class="ldot" style="background:${c}"></span>${l}</span>`
-        ).join('');
-        return div;
-      },
-    });
-    new Legend().addTo(this._map);
-  }
-
   _injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
@@ -113,12 +91,6 @@ export class MapManager {
                   background:rgba(88,166,255,.18); border:2px solid #58a6ff;
                   color:#58a6ff; font-size:12px; font-weight:600;
                   display:flex; align-items:center; justify-content:center }
-      .map-legend-ctrl { background:rgba(22,27,34,.88); border:1px solid #30363d;
-                         border-radius:6px; padding:6px 10px; font-size:11px;
-                         color:#8b949e; display:flex; flex-direction:column;
-                         gap:4px; backdrop-filter:blur(4px) }
-      .ldot { width:10px; height:10px; border-radius:50%;
-              display:inline-block; vertical-align:middle; margin-right:5px }
     `;
     document.head.appendChild(s);
   }
