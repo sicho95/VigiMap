@@ -1,17 +1,17 @@
-import { MapManager }        from './map/MapManager.js';
-import { PlayerGrid }        from './player/PlayerGrid.js';
-import { VideoImporter }     from './player/VideoImporter.js';
+import { MapManager }         from './map/MapManager.js';
+import { PlayerGrid }         from './player/PlayerGrid.js';
+import { VideoImporter }      from './player/VideoImporter.js';
 import { fetchAllCameras, SOURCE_REGISTRY } from './sources/SourceManager.js';
-import { initSourcePanel }   from './sources/SourcePanel.js';
-import { initSettingsPanel } from './settings/SettingsPanel.js';
+import { initSourcePanel }    from './sources/SourcePanel.js';
+import { initSettingsPanel }  from './settings/SettingsPanel.js';
 import { getSetting, setSetting } from './settings/SettingsManager.js';
-import { LogStore }          from './logs/LogStore.js';
-import { LogPanel }          from './logs/LogPanel.js';
-import { CVEngine }          from './cv/CVEngine.js';
-import { initQueryPanel }    from './queries/QueryEditor.js';
-import { getActiveQueries }  from './queries/QueryManager.js';
-import { LibraryPanel }      from './youtube/LibraryPanel.js';
-import { openAddStreamModal } from './youtube/AddStreamModal.js';
+import { LogStore }           from './logs/LogStore.js';
+import { LogPanel }           from './logs/LogPanel.js';
+import { CVEngine }           from './cv/CVEngine.js';
+import { initQueryPanel }     from './queries/QueryEditor.js';
+import { getActiveQueries }   from './queries/QueryManager.js';
+import { LibraryPanel }       from './youtube/LibraryPanel.js';
+import { openAddStreamModal }  from './youtube/AddStreamModal.js';
 import { getAllStreams, streamToCam } from './youtube/YouTubeLibrary.js';
 
 // ─── État global ───────────────────────────────────────────────────────────────
@@ -55,38 +55,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadLibraryCamsOnMap();
 
   bindUI();
-  initSettingsPanel();  // appelé après bindUI pour que #settings-inner soit dans le DOM
+  initSettingsPanel();
   await loadCams();
   initMobileNav();
   await logPanel.refresh();
 });
 
-// ─── Callback toggle source depuis SourcePanel ─────────────────────────────────
-// Appelé quand l'utilisateur active une source.
-// Vérifie si elle nécessite une clé API — si manquante, annule + flash erreur.
+// ─── Garde clé API sur activation source ──────────────────────────────────────
 function onSourceToggle(sourceId, newState) {
-  if (!newState) return; // désactivation toujours OK
-
+  if (!newState) return;
   const entry = SOURCE_REGISTRY.find(s => s.id === sourceId);
-  if (!entry || !entry.apiKey) return; // pas de clé requise
-
+  if (!entry || !entry.apiKey) return;
   const apiKeys = getSetting('apiKeys') || {};
   if (!apiKeys[entry.apiKey]) {
-    // Annuler l'activation
     const ss = getSetting('sources') || {};
     ss[sourceId] = false;
     setSetting('sources', ss);
-    // Ré-afficher le toggle en off
     const toggle = document.querySelector(`[data-source-id="${sourceId}"] .source-toggle`);
     if (toggle) toggle.checked = false;
-
     flash(
-      `🔑 La source "${entry.name}" nécessite une clé API ("${entry.apiKey}").\n` +
-      `Renseignez-la dans Paramètres > Clés API, puis réactivez la source.`,
-      8000,
-      'error'
+      `🔑 "${entry.name}" nécessite la clé API "${entry.apiKey}". Configurez-la dans ⚙️ Paramètres.`,
+      8000, 'error'
     );
-    return;
   }
 }
 
@@ -163,12 +153,9 @@ async function refreshCV() {
 
 async function onCVMatch(cameraId, query, result, frameB64) {
   const cam = state.cameras.get(cameraId) || { name: cameraId, sourceId: '' };
-
   map.updateCameraStatus(cameraId, 'match');
   setTimeout(() => map.updateCameraStatus(cameraId, cam.status || 'unknown'), 8000);
-
   grid.highlight(cameraId);
-
   await logs.add({
     cameraId,
     cameraName:   cam.name,
@@ -179,7 +166,6 @@ async function onCVMatch(cameraId, query, result, frameB64) {
     globalScore:  result.globalScore,
     frameCapture: frameB64 || null,
   });
-
   await logPanel.refresh();
   flash(`🎯 Match [${query.name}] ${cam.name} — ${Math.round(result.globalScore * 100)}%`);
 }
@@ -232,13 +218,22 @@ function pinCam(cam) {
 }
 
 // ─── Bindings UI ──────────────────────────────────────────────────────────────
+// Tous les IDs correspondent exactement à ceux du index.html en production :
+//   btn-sources      → source-panel
+//   btn-queries      → query-panel
+//   btn-library      → library-panel
+//   btn-logs         → log-panel-side
+//   btn-import       → import-panel
+//   btn-add-stream   → openAddStreamModal
+//   btn-cv-toggle    → toggle CV on/off
+//   btn-settings     → settings-body
 function bindUI() {
-  // Popup fermeture
+  // ── Popup fermeture ──
   document.getElementById('btn-close-popup')?.addEventListener('click', () => {
     document.getElementById('camera-popup')?.classList.add('hidden');
   });
 
-  // Filtres
+  // ── Filtres ──
   document.getElementById('filter-source')?.addEventListener('change', e => {
     state.filters.source = e.target.value;
     applyFilters();
@@ -252,10 +247,41 @@ function bindUI() {
     applyFilters();
   });
 
-  // Refresh
+  // ── Refresh ──
   document.getElementById('btn-refresh')?.addEventListener('click', () => loadCams());
 
-  // Ajout stream
+  // ── Panneau Sources ──
+  document.getElementById('btn-sources')?.addEventListener('click', () => {
+    togglePanel('source-panel');
+  });
+  document.getElementById('btn-sources-close')?.addEventListener('click', () => {
+    hidePanel('source-panel');
+  });
+
+  // ── Panneau Requêtes CV ──
+  document.getElementById('btn-queries')?.addEventListener('click', () => {
+    togglePanel('query-panel');
+  });
+
+  // ── Panneau Bibliothèque ──
+  document.getElementById('btn-library')?.addEventListener('click', () => {
+    togglePanel('library-panel');
+    libPanel.refresh();
+  });
+  document.getElementById('btn-library-close')?.addEventListener('click', () => {
+    hidePanel('library-panel');
+  });
+
+  // ── Bouton ➕ dans la bibliothèque ──
+  document.getElementById('btn-add-stream-lib')?.addEventListener('click', () => {
+    openAddStreamModal(null, async () => {
+      await libPanel.refresh();
+      await loadLibraryCamsOnMap();
+      applyFilters();
+    });
+  });
+
+  // ── Bouton ➕ Flux dans la barre ──
   document.getElementById('btn-add-stream')?.addEventListener('click', () => {
     openAddStreamModal(null, async () => {
       await libPanel.refresh();
@@ -264,91 +290,8 @@ function bindUI() {
     });
   });
 
-  // Import fichier
-  document.getElementById('btn-import')?.addEventListener('click', () => {
-    importer.run();
-  });
-
-  // Panneau settings — toggle
-  const btnSettings  = document.getElementById('btn-settings');
-  const settingsBody = document.getElementById('settings-body');
-  btnSettings?.addEventListener('click', () => {
-    const hidden = settingsBody?.classList.toggle('hidden');
-    if (!hidden) initSettingsPanel();
-  });
-  document.getElementById('btn-settings-close')?.addEventListener('click', () => {
-    settingsBody?.classList.add('hidden');
-  });
-
-  // Panneau logs
+  // ── Panneau Logs ──
   document.getElementById('btn-logs')?.addEventListener('click', () => {
-    document.getElementById('logs-panel')?.classList.toggle('hidden');
+    togglePanel('log-panel-side');
     logPanel.refresh();
-  });
-  document.getElementById('btn-logs-close')?.addEventListener('click', () => {
-    document.getElementById('logs-panel')?.classList.add('hidden');
-  });
-
-  // Panneau bibliothèque
-  document.getElementById('btn-lib')?.addEventListener('click', () => {
-    document.getElementById('lib-panel')?.classList.toggle('hidden');
-    libPanel.refresh();
-  });
-  document.getElementById('btn-lib-close')?.addEventListener('click', () => {
-    document.getElementById('lib-panel')?.classList.add('hidden');
-  });
-
-  // Panneau sources
-  document.getElementById('btn-sources')?.addEventListener('click', () => {
-    document.getElementById('sources-panel')?.classList.toggle('hidden');
-  });
-  document.getElementById('btn-sources-close')?.addEventListener('click', () => {
-    document.getElementById('sources-panel')?.classList.add('hidden');
-  });
-
-  // Panneau CV / queries
-  document.getElementById('btn-cv')?.addEventListener('click', () => {
-    document.getElementById('cv-panel')?.classList.toggle('hidden');
-  });
-  document.getElementById('btn-cv-close')?.addEventListener('click', () => {
-    document.getElementById('cv-panel')?.classList.add('hidden');
-  });
-
-  // Fermeture popup sur clic fond carte
-  document.getElementById('map')?.addEventListener('click', e => {
-    if (e.target.id === 'map') {
-      document.getElementById('camera-popup')?.classList.add('hidden');
-    }
-  });
-}
-
-// ─── Navigation mobile (tabs) ─────────────────────────────────────────────────
-function initMobileNav() {
-  const tabs = document.querySelectorAll('[data-tab]');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-      document.getElementById(target)?.classList.remove('hidden');
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-    });
-  });
-}
-
-// ─── Loader ───────────────────────────────────────────────────────────────────
-function setLoading(on) {
-  document.getElementById('loading-indicator')?.classList.toggle('hidden', !on);
-}
-
-// ─── Flash notification ───────────────────────────────────────────────────────
-// type: 'info' (défaut) | 'error'
-function flash(msg, duration = 5000, type = 'info') {
-  const el = document.getElementById('flash-msg');
-  if (!el) return;
-  el.textContent = msg;
-  el.className = `flash flash--${type}`;
-  el.classList.remove('hidden');
-  clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.add('hidden'), duration);
-}
+  })
