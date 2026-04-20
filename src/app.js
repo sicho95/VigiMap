@@ -11,18 +11,42 @@ import { CVEngine }           from './cv/CVEngine.js';
 import { initQueryPanel }     from './queries/QueryEditor.js';
 import { getActiveQueries }   from './queries/QueryManager.js';
 import { LibraryPanel }       from './youtube/LibraryPanel.js';
-import { openAddStreamModal }  from './youtube/AddStreamModal.js';
+import { openAddStreamModal } from './youtube/AddStreamModal.js';
 import { getAllStreams, streamToCam } from './youtube/YouTubeLibrary.js';
 
-// ─── État global ───────────────────────────────────────────────────────────────
+const UI_KEYS = {
+  panelWidth: 'vigimap.ui.panelWidth',
+  mapHidden: 'vigimap.ui.isMapHidden',
+  currentView: 'vigimap.ui.currentView',
+  connectivity: 'vigimap.connectivity.mode',
+};
+
+const MOBILE_BREAKPOINT = 768;
+const DESKTOP_PANEL_DEFAULT = 400;
+const DESKTOP_PANEL_MIN = 320;
+
 const state = {
   cameras: new Map(),
   filters: { source: '', status: '', country: '' },
+  ui: {
+    currentView: localStorage.getItem(UI_KEYS.currentView) || 'map',
+    panelWidth: parseInt(localStorage.getItem(UI_KEYS.panelWidth) || DESKTOP_PANEL_DEFAULT, 10),
+    isMapHidden: localStorage.getItem(UI_KEYS.mapHidden) === '1',
+    connectivity: localStorage.getItem(UI_KEYS.connectivity) || 'online',
+  },
 };
 
 let map, grid, logs, logPanel, cv, importer, libPanel;
+let resizeCleanup = null;
 
-// ─── Boot ──────────────────────────────────────────────────────────────────────
+const MOBILE_PANEL_MAP = {
+  streams: 'streams-panel',
+  library: 'library-panel',
+  queries: 'query-panel',
+  logs: 'log-panel-side',
+  import: 'import-panel',
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -56,12 +80,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   bindUI();
   initSettingsPanel();
+  applyDesktopPanelWidth();
+  applyMapVisibility();
+  updateConnectivityUI();
   await loadCams();
   initMobileNav();
   await logPanel.refresh();
+  syncResponsiveState();
+  window.addEventListener('resize', onWindowResize);
 });
 
-// ─── Garde clé API sur activation source ──────────────────────────────────────
 function onSourceToggle(sourceId, newState) {
   if (!newState) return;
   const entry = SOURCE_REGISTRY.find(s => s.id === sourceId);
@@ -73,14 +101,10 @@ function onSourceToggle(sourceId, newState) {
     setSetting('sources', ss);
     const toggle = document.querySelector(`[data-source-id="${sourceId}"] .source-toggle`);
     if (toggle) toggle.checked = false;
-    flash(
-      `🔑 "${entry.name}" nécessite la clé API "${entry.apiKey}". Configurez-la dans ⚙️ Paramètres.`,
-      8000, 'error'
-    );
+    flash(`🔑 "${entry.name}" nécessite la clé API "${entry.apiKey}". Configurez-la dans ⚙️ Paramètres.`, 8000, 'error');
   }
 }
 
-// ─── Bibliothèque YouTube sur la carte ────────────────────────────────────────
 async function loadLibraryCamsOnMap() {
   const streams = await getAllStreams();
   streams.forEach(s => {
@@ -90,14 +114,15 @@ async function loadLibraryCamsOnMap() {
   });
 }
 
-// ─── Chargement sources réseau ────────────────────────────────────────────────
 async function loadCams() {
+  if (state.ui.connectivity === 'offline') {
+    applyFilters();
+    return;
+  }
   setLoading(true);
   try {
     const cams = await fetchAllCameras(map.getBbox());
-    const keep = [...state.cameras.values()].filter(
-      c => c.sourceId === 'youtube' || c.sourceId === 'manual'
-    );
+    const keep = [...state.cameras.values()].filter(c => c.sourceId === 'youtube' || c.sourceId === 'manual');
     state.cameras.clear();
     keep.forEach(c => state.cameras.set(c.id, c));
     cams.forEach(c => state.cameras.set(c.id, c));
@@ -110,13 +135,13 @@ async function loadCams() {
   }
 }
 
-// ─── Filtres ──────────────────────────────────────────────────────────────────
 function applyFilters() {
   const f = state.filters;
   const visible = [...state.cameras.values()].filter(c => {
-    if (f.source  && c.sourceId !== f.source)  return false;
-    if (f.status  && c.status   !== f.status)  return false;
-    if (f.country && c.country  !== f.country) return false;
+    if (state.ui.connectivity === 'offline' && c.sourceId !== 'youtube' && c.sourceId !== 'manual') return false;
+    if (f.source && c.sourceId !== f.source) return false;
+    if (f.status && c.status !== f.status) return false;
+    if (f.country && c.country !== f.country) return false;
     if (!getSetting('showOffline') && c.status === 'offline') return false;
     return true;
   });
@@ -124,9 +149,8 @@ function applyFilters() {
 }
 
 function populateFilters() {
-  const u = k =>
-    [...new Set([...state.cameras.values()].map(c => c[k]).filter(Boolean))].sort();
-  fillSel('filter-source',  u('sourceId'));
+  const u = k => [...new Set([...state.cameras.values()].map(c => c[k]).filter(Boolean))].sort();
+  fillSel('filter-source', u('sourceId'));
   fillSel('filter-country', u('country'));
 }
 
@@ -143,7 +167,6 @@ function fillSel(id, vals) {
   });
 }
 
-// ─── CV ───────────────────────────────────────────────────────────────────────
 async function refreshCV() {
   const q = getActiveQueries();
   cv.stopAll();
@@ -158,24 +181,25 @@ async function onCVMatch(cameraId, query, result, frameB64) {
   grid.highlight(cameraId);
   await logs.add({
     cameraId,
-    cameraName:   cam.name,
-    sourceName:   cam.sourceId,
-    queryId:      query.id,
-    queryName:    query.name,
+    cameraName: cam.name,
+    sourceName: cam.sourceId,
+    queryId: query.id,
+    queryName: query.name,
     matchDetails: result.matchDetails,
-    globalScore:  result.globalScore,
+    globalScore: result.globalScore,
     frameCapture: frameB64 || null,
   });
   await logPanel.refresh();
   flash(`🎯 Match [${query.name}] ${cam.name} — ${Math.round(result.globalScore * 100)}%`);
 }
 
-// ─── Click sur marqueur carte ─────────────────────────────────────────────────
 function onCamClick(cam) {
   const pinned = grid.isPinned(cam.id);
-  const isYt   = cam.sourceId === 'youtube' || cam.sourceId === 'manual';
-  const popup  = document.getElementById('camera-popup-inner');
+  const isYt = cam.sourceId === 'youtube' || cam.sourceId === 'manual';
+  const popup = document.getElementById('camera-popup-inner');
   if (!popup) return;
+
+  ensurePopupVisibility(cam);
 
   popup.innerHTML = `
     <div class="popup-header">
@@ -185,13 +209,11 @@ function onCamClick(cam) {
     <div class="popup-meta">
       <span>${cam.sourceId || ''}</span>
       ${cam.country ? '<span>' + cam.country + '</span>' : ''}
-      ${cam.city    ? '<span>' + cam.city + '</span>' : ''}
+      ${cam.city ? '<span>' + cam.city + '</span>' : ''}
     </div>
     ${cam.streamUrl ? '<div class="popup-url"><a href="' + cam.streamUrl + '" target="_blank" rel="noopener noreferrer">🔗 Flux</a></div>' : ''}
     <div class="popup-actions">
-      <button class="btn btn--primary btn--sm" id="popup-pin">
-        ${pinned ? '📌 Épinglé' : '📌 Épingler'}
-      </button>
+      <button class="btn btn--primary btn--sm" id="popup-pin">${pinned ? '📌 Épinglé' : '📌 Épingler'}</button>
       ${isYt ? '<button class="btn btn--ghost btn--sm" id="popup-edit">✏️ Éditer</button>' : ''}
     </div>
   `;
@@ -212,28 +234,22 @@ function onCamClick(cam) {
   document.getElementById('camera-popup')?.classList.remove('hidden');
 }
 
-// ─── Pin caméra ───────────────────────────────────────────────────────────────
+function ensurePopupVisibility(cam) {
+  if (!map?.getMap || !cam?.lat || !cam?.lng) return;
+  const leafletMap = map.getMap();
+  const point = leafletMap.latLngToContainerPoint([cam.lat, cam.lng]);
+  if (point.y < 180) {
+    const targetPoint = L.point(point.x, point.y - 160);
+    const targetLatLng = leafletMap.containerPointToLatLng(targetPoint);
+    leafletMap.panTo(targetLatLng, { animate: true });
+  }
+}
+
 function pinCam(cam) {
   grid.pin(cam);
 }
 
-// ─── Bindings UI ──────────────────────────────────────────────────────────────
-// Tous les IDs correspondent exactement à ceux du index.html en production :
-//   btn-sources      → source-panel
-//   btn-queries      → query-panel
-//   btn-library      → library-panel
-//   btn-logs         → log-panel-side
-//   btn-import       → import-panel
-//   btn-add-stream   → openAddStreamModal
-//   btn-cv-toggle    → toggle CV on/off
-//   btn-settings     → settings-body
 function bindUI() {
-  // ── Popup fermeture ──
-  document.getElementById('btn-close-popup')?.addEventListener('click', () => {
-    document.getElementById('camera-popup')?.classList.add('hidden');
-  });
-
-  // ── Filtres ──
   document.getElementById('filter-source')?.addEventListener('change', e => {
     state.filters.source = e.target.value;
     applyFilters();
@@ -247,32 +263,11 @@ function bindUI() {
     applyFilters();
   });
 
-  // ── Refresh ──
   document.getElementById('btn-refresh')?.addEventListener('click', () => loadCams());
 
-  // ── Panneau Sources ──
-  document.getElementById('btn-sources')?.addEventListener('click', () => {
-    togglePanel('source-panel');
-  });
-  document.getElementById('btn-sources-close')?.addEventListener('click', () => {
-    hidePanel('source-panel');
-  });
+  document.getElementById('btn-sources-close')?.addEventListener('click', () => hidePanel('source-panel'));
 
-  // ── Panneau Requêtes CV ──
-  document.getElementById('btn-queries')?.addEventListener('click', () => {
-    togglePanel('query-panel');
-  });
-
-  // ── Panneau Bibliothèque ──
-  document.getElementById('btn-library')?.addEventListener('click', () => {
-    togglePanel('library-panel');
-    libPanel.refresh();
-  });
-  document.getElementById('btn-library-close')?.addEventListener('click', () => {
-    hidePanel('library-panel');
-  });
-
-  // ── Bouton ➕ dans la bibliothèque ──
+  document.getElementById('btn-library-close')?.addEventListener('click', () => hidePanel('library-panel'));
   document.getElementById('btn-add-stream-lib')?.addEventListener('click', () => {
     openAddStreamModal(null, async () => {
       await libPanel.refresh();
@@ -281,52 +276,14 @@ function bindUI() {
     });
   });
 
-  // ── Bouton ➕ Flux dans la barre ──
-  document.getElementById('btn-add-stream')?.addEventListener('click', () => {
-    openAddStreamModal(null, async () => {
-      await libPanel.refresh();
-      await loadLibraryCamsOnMap();
-      applyFilters();
-    });
-  });
-
-  // ── Panneau Logs ──
-  document.getElementById('btn-logs')?.addEventListener('click', () => {
-    togglePanel('log-panel-side');
-    logPanel.refresh();
-  });
-
-  // ── Panneau Import ──
-  document.getElementById('btn-import')?.addEventListener('click', () => {
-    togglePanel('import-panel');
-  });
-  document.getElementById('btn-import-close')?.addEventListener('click', () => {
-    hidePanel('import-panel');
-  });
+  document.getElementById('btn-import-close')?.addEventListener('click', () => hidePanel('import-panel'));
   document.getElementById('btn-import-run')?.addEventListener('click', () => {
     importer.run();
     hidePanel('import-panel');
   });
 
-  // ── Toggle CV on/off ──
-  const btnCvToggle = document.getElementById('btn-cv-toggle');
-  btnCvToggle?.addEventListener('click', () => {
-    const isOn = btnCvToggle.dataset.on === '1';
-    if (isOn) {
-      cv.stopAll();
-      btnCvToggle.dataset.on = '0';
-      btnCvToggle.textContent = 'CV On';
-      btnCvToggle.classList.remove('btn--active');
-    } else {
-      refreshCV();
-      btnCvToggle.dataset.on = '1';
-      btnCvToggle.textContent = 'CV Off';
-      btnCvToggle.classList.add('btn--active');
-    }
-  });
-
-  // ── Paramètres ──
-  document.getElementById('btn-settings')?.addEventListener('click', () => {
+  const btnSettings = document.getElementById('btn-settings');
+  btnSettings?.addEventListener('click', () => {
     const body = document.getElementById('settings-body');
     if (!body) return;
     const wasHidden = body.classList.toggle('hidden');
@@ -336,59 +293,211 @@ function bindUI() {
     document.getElementById('settings-body')?.classList.add('hidden');
   });
 
-  // ── Rechargement après sauvegarde des paramètres ──
+  document.getElementById('btn-connectivity')?.addEventListener('click', async () => {
+    state.ui.connectivity = state.ui.connectivity === 'online' ? 'offline' : 'online';
+    localStorage.setItem(UI_KEYS.connectivity, state.ui.connectivity);
+    setSetting('uiConnectivityMode', state.ui.connectivity);
+    updateConnectivityUI();
+    if (state.ui.connectivity === 'offline') {
+      await logs.add({ type: 'offline_enter', timestamp: new Date().toISOString() });
+      cv.stopAll();
+    } else {
+      await logs.add({ type: 'offline_exit', timestamp: new Date().toISOString() });
+      await loadCams();
+      refreshCV();
+    }
+    await logPanel.refresh();
+    applyFilters();
+    updateMobileTabAvailability();
+  });
+
+  document.getElementById('btn-side-panel-toggle')?.addEventListener('click', () => {
+    state.ui.isMapHidden = !state.ui.isMapHidden;
+    persistMapVisibility();
+    applyMapVisibility();
+  });
+
+  initResizeHandle();
   document.addEventListener('vigimap:settings-saved', () => loadCams());
 }
 
-// ─── Helpers panneaux ─────────────────────────────────────────────────────────
 function togglePanel(id) {
-  document.getElementById(id)?.classList.toggle('hidden');
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('hidden');
 }
+
 function hidePanel(id) {
   document.getElementById(id)?.classList.add('hidden');
 }
 
-// ─── Navigation mobile ────────────────────────────────────────────────────────
 function initMobileNav() {
-  const PANELS = {
-    map:      'map-panel',
-    streams:  'streams-panel',
-    library:  'library-panel',
-    queries:  'query-panel',
-    logs:     'log-panel-side',
-  };
-
   const tabs = document.querySelectorAll('.mobile-nav__btn[data-tab]');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const target = tab.dataset.tab;
-      // Masquer tous les panneaux latéraux connus
-      Object.values(PANELS).forEach(pid => {
-        document.getElementById(pid)?.classList.add('hidden');
-      });
-      // Afficher le panneau cible
-      const panelId = PANELS[target];
-      if (panelId) document.getElementById(panelId)?.classList.remove('hidden');
-
-      // Actualisation si besoin
-      if (target === 'library') libPanel?.refresh();
-      if (target === 'logs')    logPanel?.refresh();
-
-      // Styles actifs
+      if (tab.classList.contains('is-disabled')) return;
+      state.ui.currentView = target;
+      localStorage.setItem(UI_KEYS.currentView, target);
+      updateMobileView(target);
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
     });
   });
+  updateMobileTabAvailability();
 }
 
-// ─── Loader ───────────────────────────────────────────────────────────────────
+function updateMobileView(target) {
+  const sidePanel = document.getElementById('side-panel');
+  if (window.innerWidth >= MOBILE_BREAKPOINT) return;
+  Object.values(MOBILE_PANEL_MAP).forEach(panelId => {
+    document.getElementById(panelId)?.classList.remove('mobile-active');
+    document.getElementById(panelId)?.classList.add('hidden');
+  });
+
+  if (target === 'map') {
+    sidePanel?.classList.remove('mobile-visible');
+    requestAnimationFrame(() => map?.getMap()?.invalidateSize());
+    return;
+  }
+
+  const targetPanel = MOBILE_PANEL_MAP[target];
+  if (!targetPanel) return;
+  sidePanel?.classList.add('mobile-visible');
+  const el = document.getElementById(targetPanel);
+  el?.classList.remove('hidden');
+  el?.classList.add('mobile-active');
+
+  if (target === 'library') libPanel?.refresh();
+  if (target === 'logs') logPanel?.refresh();
+}
+
+function updateMobileTabAvailability() {
+  const isOffline = state.ui.connectivity === 'offline';
+  document.querySelectorAll('.mobile-nav__btn[data-tab]').forEach(btn => {
+    const tab = btn.dataset.tab;
+    const shouldDisable = isOffline && (tab === 'map' || tab === 'streams' || tab === 'library');
+    btn.classList.toggle('is-disabled', shouldDisable);
+    if (shouldDisable && btn.classList.contains('active')) {
+      state.ui.currentView = 'import';
+      localStorage.setItem(UI_KEYS.currentView, 'import');
+    }
+  });
+  if (window.innerWidth < MOBILE_BREAKPOINT) {
+    updateMobileView(state.ui.currentView);
+    const active = document.querySelector(`.mobile-nav__btn[data-tab="${state.ui.currentView}"]`) || document.querySelector('.mobile-nav__btn[data-tab="map"]');
+    document.querySelectorAll('.mobile-nav__btn').forEach(t => t.classList.remove('active'));
+    active?.classList.add('active');
+  }
+}
+
+function syncResponsiveState() {
+  if (window.innerWidth < MOBILE_BREAKPOINT) {
+    updateMobileTabAvailability();
+    updateMobileView(state.ui.currentView);
+  } else {
+    document.getElementById('side-panel')?.classList.remove('mobile-visible');
+    Object.values(MOBILE_PANEL_MAP).forEach(panelId => document.getElementById(panelId)?.classList.remove('mobile-active'));
+    requestAnimationFrame(() => map?.getMap()?.invalidateSize());
+  }
+}
+
+function onWindowResize() {
+  if (window.innerWidth >= MOBILE_BREAKPOINT && state.ui.panelWidth < DESKTOP_PANEL_MIN) {
+    state.ui.panelWidth = DESKTOP_PANEL_DEFAULT;
+    persistPanelWidth();
+  }
+  applyDesktopPanelWidth();
+  syncResponsiveState();
+}
+
+function initResizeHandle() {
+  const handle = document.getElementById('side-panel-resize-handle');
+  const panel = document.getElementById('side-panel');
+  if (!handle || !panel) return;
+
+  const start = clientX => {
+    if (window.innerWidth < MOBILE_BREAKPOINT) return;
+    const startWidth = panel.getBoundingClientRect().width;
+    const onMove = moveX => {
+      const next = Math.max(DESKTOP_PANEL_MIN, Math.round(startWidth - (moveX - clientX)));
+      state.ui.panelWidth = next;
+      applyDesktopPanelWidth();
+    };
+    const moveMouse = e => onMove(e.clientX);
+    const moveTouch = e => onMove(e.touches[0].clientX);
+    const stop = () => {
+      window.removeEventListener('mousemove', moveMouse);
+      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('touchmove', moveTouch);
+      window.removeEventListener('touchend', stop);
+      persistPanelWidth();
+    };
+    window.addEventListener('mousemove', moveMouse);
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('touchmove', moveTouch, { passive: true });
+    window.addEventListener('touchend', stop);
+    resizeCleanup = stop;
+  };
+
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    start(e.clientX);
+  });
+  handle.addEventListener('touchstart', e => start(e.touches[0].clientX), { passive: true });
+}
+
+function applyDesktopPanelWidth() {
+  if (window.innerWidth < MOBILE_BREAKPOINT) return;
+  const width = Math.max(DESKTOP_PANEL_MIN, state.ui.panelWidth || DESKTOP_PANEL_DEFAULT);
+  document.getElementById('side-panel')?.style.setProperty('width', `${width}px`);
+  document.getElementById('side-panel')?.style.setProperty('min-width', `${width}px`);
+  const appLayout = document.getElementById('app-layout');
+  if (appLayout && !state.ui.isMapHidden) {
+    appLayout.style.gridTemplateColumns = `minmax(0, 1fr) ${width}px`;
+  }
+}
+
+function applyMapVisibility() {
+  const appLayout = document.getElementById('app-layout');
+  const btn = document.getElementById('btn-side-panel-toggle');
+  if (!appLayout || !btn || window.innerWidth < MOBILE_BREAKPOINT) return;
+  appLayout.classList.toggle('is-map-hidden', state.ui.isMapHidden);
+  if (state.ui.isMapHidden) {
+    appLayout.style.gridTemplateColumns = `0 minmax(0, 1fr)`;
+    btn.textContent = '›';
+  } else {
+    btn.textContent = '‹';
+    applyDesktopPanelWidth();
+    requestAnimationFrame(() => map?.getMap()?.invalidateSize());
+  }
+}
+
+function persistPanelWidth() {
+  localStorage.setItem(UI_KEYS.panelWidth, String(state.ui.panelWidth));
+  setSetting('uiPanelWidth', state.ui.panelWidth);
+}
+
+function persistMapVisibility() {
+  localStorage.setItem(UI_KEYS.mapHidden, state.ui.isMapHidden ? '1' : '0');
+  setSetting('uiMapHidden', state.ui.isMapHidden);
+}
+
+function updateConnectivityUI() {
+  const btn = document.getElementById('btn-connectivity');
+  if (!btn) return;
+  const online = state.ui.connectivity === 'online';
+  btn.classList.toggle('is-online', online);
+  btn.title = online ? 'En ligne' : 'Hors ligne';
+  btn.setAttribute('aria-pressed', online ? 'false' : 'true');
+}
+
 function setLoading(on) {
   const bar = document.getElementById('loading-bar');
   if (!bar) return;
   bar.style.display = on ? 'block' : 'none';
 }
 
-// ─── Flash notification ───────────────────────────────────────────────────────
 function flash(msg, duration = 5000, type = 'info') {
   let el = document.getElementById('flash-msg');
   if (!el) {
@@ -403,10 +512,10 @@ function flash(msg, duration = 5000, type = 'info') {
     document.body.appendChild(el);
   }
   el.textContent = msg;
-  el.style.background  = type === 'error' ? '#c0392b' : '#2d2d2d';
-  el.style.color       = '#fff';
-  el.style.opacity     = '1';
-  el.style.display     = 'block';
+  el.style.background = type === 'error' ? '#c0392b' : '#2d2d2d';
+  el.style.color = '#fff';
+  el.style.opacity = '1';
+  el.style.display = 'block';
   clearTimeout(el._t);
   el._t = setTimeout(() => { el.style.opacity = '0'; }, duration);
 }
