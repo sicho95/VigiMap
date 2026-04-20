@@ -1,172 +1,267 @@
-import { MapView }          from './map/MapView.js';
-import { SourceManager }    from './sources/SourceManager.js';
-import { CVEngine }         from './cv/CVEngine.js';
-import { QueryStore }       from './cv/QueryStore.js';
-import { LogStore }         from './logs/LogStore.js';
-import { CameraGrid }       from './player/CameraGrid.js';
-import { VideoImporter }    from './import/VideoImporter.js';
+import { MapManager }        from './map/MapManager.js';
+import { PlayerGrid }        from './player/PlayerGrid.js';
+import { VideoImporter }     from './player/VideoImporter.js';
+import { fetchAllCameras }   from './sources/SourceManager.js';
+import { initSourcePanel }   from './sources/SourcePanel.js';
 import { initSettingsPanel } from './settings/SettingsPanel.js';
-import { getSetting }       from './settings/SettingsManager.js';
+import { getSetting }        from './settings/SettingsManager.js';
+import { LogStore }          from './logs/LogStore.js';
+import { LogPanel }          from './logs/LogPanel.js';
+import { CVEngine }          from './cv/CVEngine.js';
+import { initQueryPanel }    from './queries/QueryEditor.js';
+import { getActiveQueries }  from './queries/QueryManager.js';
+import { LibraryPanel }      from './youtube/LibraryPanel.js';
+import { openAddStreamModal } from './youtube/AddStreamModal.js';
+import { getAllStreams, streamToCam } from './youtube/YouTubeLibrary.js';
 
-window.addEventListener('DOMContentLoaded', async () => {
-  // ── Stores & moteurs ────────────────────────────────────────────────────
-  const logStore   = new LogStore();
-  const queryStore = new QueryStore();
+// ─── État global ────────────────────────────────────────────────────────────
+const state = {
+  cameras: new Map(),
+  filters: { source: '', status: '', country: '' },
+};
 
-  const cv = new CVEngine(async (camId, query, result, frameB64) => {
-    await logStore.add({ camId, query, result, frameB64, ts: Date.now() });
-    ui.refreshLogs?.();
-  });
+let map, grid, logs, logPanel, cv, importer, libPanel;
 
-  // ── Carte ────────────────────────────────────────────────────────────────
-  const map = new MapView('map', { onClick: cam => grid.pin(cam) });
+// ─── Boot ────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  if ('serviceWorker' in navigator)
+    navigator.serviceWorker.register('sw.js').catch(() => {});
 
-  // ── Grille de players ────────────────────────────────────────────────────
-  const grid = new CameraGrid(
-    document.getElementById('grid'),
-    cv,
-    () => queryStore.getAll()
+  // Settings panel — appelé ici, tolère #settings-inner absent du DOM
+  // SettingsPanel.js gère l'état "pas encore rendu" avec dataset.ready
+  initSettingsPanel();
+
+  map = new MapManager('map', onCamClick).init();
+  requestAnimationFrame(() => map.getMap().invalidateSize());
+
+  grid = new PlayerGrid('player-grid');
+
+  logs = new LogStore();
+  await logs.init();
+
+  logPanel = new LogPanel(logs, 'log-list', 'log-size-info');
+  logPanel.bind('btn-export-logs', 'btn-clear-logs');
+
+  cv = new CVEngine(onCVMatch);
+  importer = new VideoImporter(grid, cv, getActiveQueries, onCVMatch);
+
+  initQueryPanel(() => refreshCV(), cv);
+  initSourcePanel('source-list', () => loadCams());
+
+  libPanel = new LibraryPanel(
+    'lib-list',
+    cam => pinCam(cam),
+    async () => { await loadLibraryCamsOnMap(); applyFilters(); }
   );
+  await libPanel.refresh();
+  await loadLibraryCamsOnMap();
 
-  // ── Sources ──────────────────────────────────────────────────────────────
-  const sources = new SourceManager({
-    proxy:   getSetting('proxyUrl') || '',
-    apiKeys: getSetting('apiKeys')  || {},
-  });
-
-  // ── Import vidéo/photo ───────────────────────────────────────────────────
-  const importer = new VideoImporter(
-    grid, cv,
-    () => queryStore.getAll(),
-    async (camId, query, result, frame) => {
-      await logStore.add({ camId, query, result, frameB64: frame, ts: Date.now() });
-      ui.refreshLogs?.();
-    }
-  );
-
-  // ── UI bindings ──────────────────────────────────────────────────────────
-  const ui = {};
-  bindUI(map, sources, grid, cv, queryStore, logStore, importer, ui);
+  bindUI();
+  await loadCams();
+  initMobileNav();
+  await logPanel.refresh();
 });
 
-function bindUI(map, sources, grid, cv, queryStore, logStore, importer, ui) {
+// ─── Caméras bibliothèque YouTube sur la carte ────────────────────────────────
+async function loadLibraryCamsOnMap() {
+  const streams = await getAllStreams();
+  streams.forEach(s => {
+    if (s.enabled === false) return;
+    const cam = streamToCam(s);
+    if (cam.lat || cam.lng) state.cameras.set(cam.id, cam);
+  });
+}
 
-  // ── Chargement des caméras ────────────────────────────────────────────────
-  async function loadCams() {
-    const bbox = map.getBounds();
-    try {
-      const cams = await sources.fetchAllCameras(bbox);
-      cams.forEach(c => map.addMarker(c));
-    } catch (e) {
-      console.warn('[app.js]', e);
-    }
+// ─── Chargement sources réseau ────────────────────────────────────────────────
+async function loadCams() {
+  setLoading(true);
+  try {
+    const cams = await fetchAllCameras(map.getBbox());
+    // Garder les caméras YouTube/manuelles entre les refreshs
+    const keep = [...state.cameras.values()].filter(
+      c => c.sourceId === 'youtube' || c.sourceId === 'manual'
+    );
+    state.cameras.clear();
+    keep.forEach(c => state.cameras.set(c.id, c));
+    cams.forEach(c => state.cameras.set(c.id, c));
+    applyFilters();
+    populateFilters();
+  } catch (e) {
+    console.error('[VigiMap]', e);
+  } finally {
+    setLoading(false);
   }
+}
 
-  map.on('moveend', loadCams);
-  map.on('zoomend', loadCams);
-  loadCams();
+// ─── Filtres ──────────────────────────────────────────────────────────────────
+function applyFilters() {
+  const f = state.filters;
+  const visible = [...state.cameras.values()].filter(c => {
+    if (f.source  && c.sourceId !== f.source)  return false;
+    if (f.status  && c.status   !== f.status)  return false;
+    if (f.country && c.country  !== f.country) return false;
+    if (!getSetting('showOffline') && c.status === 'offline') return false;
+    return true;
+  });
+  map.setCameras(visible.filter(c => c.lat || c.lng));
+}
 
-  // ── Bouton Settings ───────────────────────────────────────────────────────
+function populateFilters() {
+  const u = k => [...new Set([...state.cameras.values()].map(c => c[k]).filter(Boolean))].sort();
+  fillSel('filter-source',  u('sourceId'));
+  fillSel('filter-country', u('country'));
+}
+
+function fillSel(id, vals) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const first = el.options[0];
+  el.innerHTML = '';
+  el.appendChild(first);
+  vals.forEach(v => {
+    const o = document.createElement('option');
+    o.value = o.textContent = v;
+    el.appendChild(o);
+  });
+}
+
+// ─── CV ───────────────────────────────────────────────────────────────────────
+async function refreshCV() {
+  const q = getActiveQueries();
+  cv.stopAll();
+  if (!q.length) return;
+  for (const p of grid.all()) await cv.start(p, q);
+}
+
+async function onCVMatch(cameraId, query, result, frameB64) {
+  const cam = state.cameras.get(cameraId) || { name: cameraId, sourceId: '' };
+  map.updateCameraStatus(cameraId, 'match');
+  setTimeout(() => map.updateCameraStatus(cameraId, cam.status || 'unknown'), 8000);
+  grid.highlight(cameraId);
+  await logs.add({
+    cameraId,
+    cameraName:   cam.name,
+    sourceName:   cam.sourceId,
+    queryId:      query.id,
+    queryName:    query.name,
+    matchDetails: result.matchDetails,
+    globalScore:  result.globalScore,
+    frameCapture: frameB64 || null,
+  });
+  await logPanel.refresh();
+  flash(`🎯 Match [${query.name}] ${cam.name} — ${Math.round(result.globalScore * 100)}%`);
+}
+
+// ─── Click sur marqueur carte ─────────────────────────────────────────────────
+function onCamClick(cam) {
+  const pinned = grid.isPinned(cam.id);
+  const isYt   = cam.sourceId === 'youtube' || cam.sourceId === 'manual';
+  const popup  = document.getElementById('camera-popup-inner');
+  if (!popup) return;
+  popup.innerHTML = `
+    <div class="popup-header">
+      <strong>${cam.name}</strong>
+      <span class="badge badge--${cam.status || 'unknown'}">${cam.status || '?'}</span>
+    </div>
+    <div class="popup-meta">
+      <span>${cam.sourceId || ''}</span>
+      ${cam.country ? `<span>${cam.country}</span>` : ''}
+    </div>
+    <div class="popup-actions" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn--primary btn--sm" id="popup-pin">
+        ${pinned ? '📌 Épinglé' : '📌 Épingler'}
+      </button>
+      ${isYt ? `<button class="btn btn--ghost btn--sm" id="popup-edit">✏️ Éditer</button>` : ''}
+    </div>`;
+
+  document.getElementById('popup-pin')?.addEventListener('click', () => {
+    pinCam(cam);
+    document.getElementById('camera-popup')?.classList.add('hidden');
+  });
+  document.getElementById('popup-edit')?.addEventListener('click', () => {
+    openAddStreamModal(cam, async () => { await libPanel.refresh(); await loadLibraryCamsOnMap(); applyFilters(); });
+  });
+
+  document.getElementById('camera-popup')?.classList.remove('hidden');
+}
+
+function pinCam(cam) {
+  grid.pin(cam);
+}
+
+// ─── Bindings UI généraux ─────────────────────────────────────────────────────
+function bindUI() {
+  // Fermer popup carte
+  document.getElementById('btn-close-popup')?.addEventListener('click', () => {
+    document.getElementById('camera-popup')?.classList.add('hidden');
+  });
+
+  // Filtres
+  document.getElementById('filter-source')?.addEventListener('change', e => {
+    state.filters.source = e.target.value; applyFilters();
+  });
+  document.getElementById('filter-status')?.addEventListener('change', e => {
+    state.filters.status = e.target.value; applyFilters();
+  });
+  document.getElementById('filter-country')?.addEventListener('change', e => {
+    state.filters.country = e.target.value; applyFilters();
+  });
+
+  // Refresh caméras
+  document.getElementById('btn-refresh')?.addEventListener('click', () => loadCams());
+
+  // Ajouter un flux YouTube/manuel
+  document.getElementById('btn-add-stream')?.addEventListener('click', () => {
+    openAddStreamModal(null, async () => { await libPanel.refresh(); await loadLibraryCamsOnMap(); applyFilters(); });
+  });
+
+  // Import fichier local
+  document.getElementById('btn-import')?.addEventListener('click', () => {
+    importer.run();
+  });
+
+  // Settings
   const btnSettings  = document.getElementById('btn-settings');
   const settingsBody = document.getElementById('settings-body');
-
-  if (btnSettings && settingsBody) {
-    btnSettings.addEventListener('click', () => {
-      settingsBody.classList.toggle('hidden');
-      // ✅ FIX : initSettingsPanel appelé ICI, après que le panneau est visible
-      // #settings-inner existe dans le DOM à ce moment précis
-      if (!settingsBody.classList.contains('hidden')) {
-        initSettingsPanel();
-      }
-    });
-  }
-
-  // ── Bouton fermeture Settings ─────────────────────────────────────────────
+  btnSettings?.addEventListener('click', () => {
+    settingsBody?.classList.toggle('hidden');
+    if (!settingsBody?.classList.contains('hidden')) initSettingsPanel();
+  });
   document.getElementById('btn-settings-close')?.addEventListener('click', () => {
     settingsBody?.classList.add('hidden');
   });
 
-  // ── Import fichier ────────────────────────────────────────────────────────
-  document.getElementById('btn-import')?.addEventListener('click', () => {
-    document.getElementById('import-panel')?.classList.toggle('hidden');
-  });
-
-  document.getElementById('btn-import-run')?.addEventListener('click', () => {
-    importer.run();
-    document.getElementById('import-panel')?.classList.add('hidden');
-  });
-
-  // ── Panneau CV/Queries ────────────────────────────────────────────────────
-  document.getElementById('btn-cv')?.addEventListener('click', () => {
-    document.getElementById('cv-panel')?.classList.toggle('hidden');
-  });
-
-  document.getElementById('btn-add-query')?.addEventListener('click', () => {
-    const name = document.getElementById('query-name')?.value?.trim();
-    const type = document.getElementById('query-type')?.value;
-    if (!name) return;
-    queryStore.add({ name, type, id: 'q_' + Date.now() });
-    renderQueries();
-  });
-
-  function renderQueries() {
-    const list = document.getElementById('query-list');
-    if (!list) return;
-    const qs = queryStore.getAll();
-    list.innerHTML = qs.length
-      ? qs.map(q => `
-          <div class="query-item" data-id="${q.id}">
-            <span>${q.name}</span>
-            <span class="badge">${q.type}</span>
-            <button class="btn btn--ghost btn--xs" data-del="${q.id}">✕</button>
-          </div>`).join('')
-      : '<span style="color:var(--color-text-muted);font-size:12px">Aucune requête</span>';
-    list.querySelectorAll('[data-del]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        queryStore.remove(btn.dataset.del);
-        renderQueries();
-      });
-    });
-  }
-  renderQueries();
-
-  // ── Logs ──────────────────────────────────────────────────────────────────
+  // Logs
   document.getElementById('btn-logs')?.addEventListener('click', () => {
     document.getElementById('logs-panel')?.classList.toggle('hidden');
-    refreshLogs();
+    logPanel.refresh();
   });
+}
 
-  async function refreshLogs() {
-    const list = document.getElementById('logs-list');
-    if (!list) return;
-    const logs = await logStore.getAll();
-    list.innerHTML = logs.length
-      ? [...logs].reverse().slice(0, 50).map(l => `
-          <div class="log-item">
-            <span class="log-time">${new Date(l.ts).toLocaleTimeString()}</span>
-            <span class="log-cam">${l.camId}</span>
-            <span class="log-query">${l.query?.name || ''}</span>
-            <span class="log-score">${Math.round((l.result?.globalScore || 0) * 100)}%</span>
-            ${l.frameB64 ? `<img src="${l.frameB64}" class="log-thumb">` : ''}
-          </div>`).join('')
-      : '<span style="color:var(--color-text-muted);font-size:12px">Aucun log</span>';
-  }
-
-  ui.refreshLogs = refreshLogs;
-
-  document.getElementById('btn-clear-logs')?.addEventListener('click', async () => {
-    await logStore.clear();
-    refreshLogs();
+// ─── Mobile nav ───────────────────────────────────────────────────────────────
+function initMobileNav() {
+  const tabs = document.querySelectorAll('[data-tab]');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.getElementById(target)?.classList.remove('hidden');
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
   });
+}
 
-  // ── CV global start/stop ──────────────────────────────────────────────────
-  document.getElementById('btn-cv-start')?.addEventListener('click', () => {
-    const qs = queryStore.getAll();
-    if (!qs.length) { alert('Créez d\'abord au moins une requête CV.'); return; }
-    grid.getAllPlayers().forEach(p => cv.start(p, qs));
-  });
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function setLoading(on) {
+  document.getElementById('loading-indicator')?.classList.toggle('hidden', !on);
+}
 
-  document.getElementById('btn-cv-stop')?.addEventListener('click', () => {
-    cv.stopAll();
-  });
+function flash(msg) {
+  const el = document.getElementById('flash-msg');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.add('hidden'), 5000);
 }
