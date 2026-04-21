@@ -36,8 +36,19 @@
       <button class="btn btn--ghost btn--sm" id="btn-settings">⚙️</button>
     </div>
   </div>
-  <div class="navbar__row navbar__row--filters">
-    <div class="map-toolbar">
+
+  <div class="navbar__row navbar__row--toolbar">
+    <div class="toolbar-row toolbar-row--nav" id="desktop-toolbar-nav">
+      <button class="toolbar-nav-btn toolbar-nav-btn--active" data-panel-tab="streams">▶️ Flux</button>
+      <button class="toolbar-nav-btn" data-panel-tab="library">📺 Bibliothèque</button>
+      <button class="toolbar-nav-btn" data-panel-tab="queries">🔍 Requêtes CV</button>
+      <button class="toolbar-nav-btn" data-panel-tab="logs">📋 Logs</button>
+      <button class="toolbar-nav-btn" data-panel-tab="import">📂 Import</button>
+    </div>
+
+    <div class="toolbar-separator" aria-hidden="true"></div>
+
+    <div class="toolbar-row toolbar-row--filters">
       <select class="select-sm" id="filter-source"><option value="">Toutes sources</option></select>
       <select class="select-sm" id="filter-status">
         <option value="">Tous statuts</option>
