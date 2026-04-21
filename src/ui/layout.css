@@ -165,7 +165,7 @@
   grid-template-columns: minmax(0,1fr) 400px;
   /* hauteur = 100vh moins la hauteur réelle de la navbar */
   height: calc(100vh - var(--navbar-h, 90px));
-  margin-top: var(--navbar-h, 90px);
+  margin-top: var(--navbar-h, 76px);
   overflow: hidden;
 }
 .app-layout.is-map-hidden {
