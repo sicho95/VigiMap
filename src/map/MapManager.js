@@ -39,7 +39,8 @@ export class MapManager {
   }
 
   init() {
-    this._map = L.map(this._id, { center: [20, 0], zoom: 3 });
+    this._map = L.map(this._id, { center: [20, 0], zoom: 3, zoomControl: false });
+    L.control.zoom({ position: 'bottomright' }).addTo(this._map);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -59,7 +60,6 @@ export class MapManager {
     this._map.addLayer(this._cluster);
     this._layer = new CameraLayer(this._cluster, mkIcon, this._onClick);
     this._injectStyles();
-    // Pas de légende Leaflet Control — la légende est dans le HTML (.map-legend)
     return this;
   }
 
