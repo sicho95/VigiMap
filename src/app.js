@@ -15,26 +15,26 @@ import { openAddStreamModal } from './youtube/AddStreamModal.js';
 import { getAllStreams, streamToCam } from './youtube/YouTubeLibrary.js';
 
 const UI_KEYS = {
-  panelWidth: 'vigimap.ui.panelWidth',
-  mapHidden: 'vigimap.ui.isMapHidden',
-  currentView: 'vigimap.ui.currentView',
-  connectivity: 'vigimap.connectivity.mode',
-  desktopPanelTab: 'vigimap.ui.desktopPanelTab',
+  panelWidth:     'vigimap.ui.panelWidth',
+  mapHidden:      'vigimap.ui.isMapHidden',
+  currentView:    'vigimap.ui.currentView',
+  connectivity:   'vigimap.connectivity.mode',
+  desktopPanelTab:'vigimap.ui.desktopPanelTab',
 };
 
-const MOBILE_BREAKPOINT = 768;
+const MOBILE_BREAKPOINT    = 768;
 const DESKTOP_PANEL_DEFAULT = 400;
-const DESKTOP_PANEL_MIN = 400;
+const DESKTOP_PANEL_MIN     = 400;
 
 const state = {
   cameras: new Map(),
   filters: { source: '', status: '', country: '' },
   ui: {
-    currentView: localStorage.getItem(UI_KEYS.currentView) || 'map',
+    currentView:     localStorage.getItem(UI_KEYS.currentView)     || 'map',
     desktopPanelTab: localStorage.getItem(UI_KEYS.desktopPanelTab) || 'streams',
-    panelWidth: parseInt(localStorage.getItem(UI_KEYS.panelWidth) || DESKTOP_PANEL_DEFAULT, 10),
-    isMapHidden: localStorage.getItem(UI_KEYS.mapHidden) === '1',
-    connectivity: localStorage.getItem(UI_KEYS.connectivity) || 'online',
+    panelWidth:      parseInt(localStorage.getItem(UI_KEYS.panelWidth) || DESKTOP_PANEL_DEFAULT, 10),
+    isMapHidden:     localStorage.getItem(UI_KEYS.mapHidden) === '1',
+    connectivity:    localStorage.getItem(UI_KEYS.connectivity)    || 'online',
   },
 };
 
@@ -44,8 +44,8 @@ const MOBILE_PANEL_MAP = {
   streams: 'streams-panel',
   library: 'library-panel',
   queries: 'query-panel',
-  logs: 'log-panel-side',
-  import: 'import-panel',
+  logs:    'log-panel-side',
+  import:  'import-panel',
 };
 
 const DESKTOP_PANEL_MAP = { ...MOBILE_PANEL_MAP };
@@ -55,18 +55,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   map = new MapManager('map', onCamClick).init();
   requestAnimationFrame(() => map.getMap().invalidateSize());
-  grid = new PlayerGrid('player-grid');
-  logs = new LogStore();
+  grid     = new PlayerGrid('player-grid');
+  logs     = new LogStore();
   await logs.init();
   logPanel = new LogPanel(logs, 'log-list', 'log-size-info');
   logPanel.bind('btn-export-logs', 'btn-clear-logs');
-  cv = new CVEngine(onCVMatch);
+  cv       = new CVEngine(onCVMatch);
   importer = new VideoImporter(grid, cv, getActiveQueries, onCVMatch);
 
   initQueryPanel(() => refreshCV(), cv);
   initSourcePanel('source-list', () => loadCams(), onSourceToggle);
 
-  libPanel = new LibraryPanel('lib-list', cam => pinCam(cam), async () => { await loadLibraryCamsOnMap(); applyFilters(); });
+  libPanel = new LibraryPanel(
+    'lib-list',
+    cam => pinCam(cam),
+    async () => { await loadLibraryCamsOnMap(); applyFilters(); }
+  );
   await libPanel.refresh();
   await loadLibraryCamsOnMap();
 
@@ -108,10 +112,7 @@ async function loadLibraryCamsOnMap() {
 }
 
 async function loadCams() {
-  if (state.ui.connectivity === 'offline') {
-    applyFilters();
-    return;
-  }
+  if (state.ui.connectivity === 'offline') { applyFilters(); return; }
   setLoading(true);
   try {
     const cams = await fetchAllCameras(map.getBbox());
@@ -132,9 +133,9 @@ function applyFilters() {
   const f = state.filters;
   const visible = [...state.cameras.values()].filter(c => {
     if (state.ui.connectivity === 'offline' && c.sourceId !== 'youtube' && c.sourceId !== 'manual') return false;
-    if (f.source && c.sourceId !== f.source) return false;
-    if (f.status && c.status !== f.status) return false;
-    if (f.country && c.country !== f.country) return false;
+    if (f.source  && c.sourceId !== f.source)  return false;
+    if (f.status  && c.status   !== f.status)  return false;
+    if (f.country && c.country  !== f.country) return false;
     if (!getSetting('showOffline') && c.status === 'offline') return false;
     return true;
   });
@@ -143,7 +144,7 @@ function applyFilters() {
 
 function populateFilters() {
   const u = k => [...new Set([...state.cameras.values()].map(c => c[k]).filter(Boolean))].sort();
-  fillSel('filter-source', u('sourceId'));
+  fillSel('filter-source',  u('sourceId'));
   fillSel('filter-country', u('country'));
 }
 
@@ -174,12 +175,12 @@ async function onCVMatch(cameraId, query, result, frameB64) {
   grid.highlight(cameraId);
   await logs.add({
     cameraId,
-    cameraName: cam.name,
-    sourceName: cam.sourceId,
-    queryId: query.id,
-    queryName: query.name,
+    cameraName:   cam.name,
+    sourceName:   cam.sourceId,
+    queryId:      query.id,
+    queryName:    query.name,
     matchDetails: result.matchDetails,
-    globalScore: result.globalScore,
+    globalScore:  result.globalScore,
     frameCapture: frameB64 || null,
   });
   await logPanel.refresh();
@@ -188,8 +189,8 @@ async function onCVMatch(cameraId, query, result, frameB64) {
 
 function onCamClick(cam) {
   const pinned = grid.isPinned(cam.id);
-  const isYt = cam.sourceId === 'youtube' || cam.sourceId === 'manual';
-  const popup = document.getElementById('camera-popup-inner');
+  const isYt   = cam.sourceId === 'youtube' || cam.sourceId === 'manual';
+  const popup  = document.getElementById('camera-popup-inner');
   if (!popup) return;
   ensurePopupVisibility(cam);
   popup.innerHTML = `
@@ -200,7 +201,7 @@ function onCamClick(cam) {
     <div class="popup-meta">
       <span>${cam.sourceId || ''}</span>
       ${cam.country ? '<span>' + cam.country + '</span>' : ''}
-      ${cam.city ? '<span>' + cam.city + '</span>' : ''}
+      ${cam.city    ? '<span>' + cam.city    + '</span>' : ''}
     </div>
     ${cam.streamUrl ? '<div class="popup-url"><a href="' + cam.streamUrl + '" target="_blank" rel="noopener noreferrer">🔗 Flux</a></div>' : ''}
     <div class="popup-actions">
@@ -227,7 +228,7 @@ function ensurePopupVisibility(cam) {
   const leafletMap = map.getMap();
   const point = leafletMap.latLngToContainerPoint([cam.lat, cam.lng]);
   if (point.y < 180) {
-    const targetPoint = L.point(point.x, point.y - 160);
+    const targetPoint  = L.point(point.x, point.y - 160);
     const targetLatLng = leafletMap.containerPointToLatLng(targetPoint);
     leafletMap.panTo(targetLatLng, { animate: true });
   }
@@ -236,17 +237,17 @@ function ensurePopupVisibility(cam) {
 function pinCam(cam) { grid.pin(cam); }
 
 function bindUI() {
-  document.getElementById('filter-source')?.addEventListener('change', e => { state.filters.source = e.target.value; applyFilters(); });
-  document.getElementById('filter-status')?.addEventListener('change', e => { state.filters.status = e.target.value; applyFilters(); });
+  document.getElementById('filter-source')?.addEventListener('change',  e => { state.filters.source  = e.target.value; applyFilters(); });
+  document.getElementById('filter-status')?.addEventListener('change',  e => { state.filters.status  = e.target.value; applyFilters(); });
   document.getElementById('filter-country')?.addEventListener('change', e => { state.filters.country = e.target.value; applyFilters(); });
   document.getElementById('btn-refresh')?.addEventListener('click', () => loadCams());
-  document.getElementById('btn-sources-close')?.addEventListener('click', () => hidePanel('source-panel'));
-  document.getElementById('btn-library-close')?.addEventListener('click', () => hidePanel('library-panel'));
+  document.getElementById('btn-sources-close')?.addEventListener('click',  () => hidePanel('source-panel'));
+  document.getElementById('btn-library-close')?.addEventListener('click',  () => hidePanel('library-panel'));
   document.getElementById('btn-add-stream-lib')?.addEventListener('click', () => {
     openAddStreamModal(null, async () => { await libPanel.refresh(); await loadLibraryCamsOnMap(); applyFilters(); });
   });
   document.getElementById('btn-import-close')?.addEventListener('click', () => hidePanel('import-panel'));
-  document.getElementById('btn-import-run')?.addEventListener('click', () => { importer.run(); hidePanel('import-panel'); });
+  document.getElementById('btn-import-run')?.addEventListener('click',   () => { importer.run(); hidePanel('import-panel'); });
 
   document.getElementById('btn-settings')?.addEventListener('click', () => {
     const body = document.getElementById('settings-body');
@@ -254,7 +255,9 @@ function bindUI() {
     const wasHidden = body.classList.toggle('hidden');
     if (!wasHidden) initSettingsPanel();
   });
-  document.getElementById('btn-settings-close')?.addEventListener('click', () => document.getElementById('settings-body')?.classList.add('hidden'));
+  document.getElementById('btn-settings-close')?.addEventListener('click', () =>
+    document.getElementById('settings-body')?.classList.add('hidden')
+  );
 
   document.getElementById('btn-connectivity')?.addEventListener('click', async () => {
     state.ui.connectivity = state.ui.connectivity === 'online' ? 'offline' : 'online';
@@ -285,8 +288,7 @@ function bindUI() {
 }
 
 function initDesktopToolbarNav() {
-  const buttons = document.querySelectorAll('.toolbar-nav-btn[data-panel-tab]');
-  buttons.forEach(btn => {
+  document.querySelectorAll('.toolbar-nav-btn[data-panel-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
       state.ui.desktopPanelTab = btn.dataset.panelTab;
       localStorage.setItem(UI_KEYS.desktopPanelTab, state.ui.desktopPanelTab);
@@ -304,7 +306,7 @@ function applyDesktopPanelTab() {
     document.querySelector(`.toolbar-nav-btn[data-panel-tab="${tab}"]`)?.classList.toggle('toolbar-nav-btn--active', isActive);
   });
   if (state.ui.desktopPanelTab === 'library') libPanel?.refresh();
-  if (state.ui.desktopPanelTab === 'logs') logPanel?.refresh();
+  if (state.ui.desktopPanelTab === 'logs')    logPanel?.refresh();
 }
 
 function hidePanel(id) { document.getElementById(id)?.classList.add('hidden'); }
@@ -344,14 +346,14 @@ function updateMobileView(target) {
   el?.classList.remove('hidden');
   el?.classList.add('mobile-active');
   if (target === 'library') libPanel?.refresh();
-  if (target === 'logs') logPanel?.refresh();
+  if (target === 'logs')    logPanel?.refresh();
 }
 
 function updateMobileTabAvailability() {
   const isOffline = state.ui.connectivity === 'offline';
   document.querySelectorAll('.mobile-nav__btn[data-tab]').forEach(btn => {
-    const tab = btn.dataset.tab;
-    const shouldDisable = isOffline and (tab === 'map' or tab == 'streams' or tab == 'library');
+    const tab          = btn.dataset.tab;
+    const shouldDisable = isOffline && (tab === 'map' || tab === 'streams' || tab === 'library');
     btn.classList.toggle('is-disabled', shouldDisable);
     if (shouldDisable && btn.classList.contains('active')) {
       state.ui.currentView = 'import';
@@ -360,7 +362,9 @@ function updateMobileTabAvailability() {
   });
   if (window.innerWidth < MOBILE_BREAKPOINT) {
     updateMobileView(state.ui.currentView);
-    const active = document.querySelector(`.mobile-nav__btn[data-tab="${state.ui.currentView}"]`) || document.querySelector('.mobile-nav__btn[data-tab="map"]');
+    const active =
+      document.querySelector(`.mobile-nav__btn[data-tab="${state.ui.currentView}"]`) ||
+      document.querySelector('.mobile-nav__btn[data-tab="map"]');
     document.querySelectorAll('.mobile-nav__btn').forEach(t => t.classList.remove('active'));
     active?.classList.add('active');
   }
@@ -374,7 +378,9 @@ function syncResponsiveState() {
   } else {
     document.getElementById('desktop-toolbar-nav')?.removeAttribute('hidden');
     document.getElementById('side-panel')?.classList.remove('mobile-visible');
-    Object.values(MOBILE_PANEL_MAP).forEach(panelId => document.getElementById(panelId)?.classList.remove('mobile-active'));
+    Object.values(MOBILE_PANEL_MAP).forEach(panelId =>
+      document.getElementById(panelId)?.classList.remove('mobile-active')
+    );
     applyDesktopPanelTab();
     requestAnimationFrame(() => map?.getMap()?.invalidateSize());
   }
@@ -392,7 +398,7 @@ function onWindowResize() {
 
 function initResizeHandle() {
   const handle = document.getElementById('side-panel-resize-handle');
-  const panel = document.getElementById('side-panel');
+  const panel  = document.getElementById('side-panel');
   if (!handle || !panel) return;
   const start = clientX => {
     if (window.innerWidth < MOBILE_BREAKPOINT || state.ui.isMapHidden) return;
@@ -406,39 +412,39 @@ function initResizeHandle() {
     const moveTouch = e => onMove(e.touches[0].clientX);
     const stop = () => {
       window.removeEventListener('mousemove', moveMouse);
-      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('mouseup',   stop);
       window.removeEventListener('touchmove', moveTouch);
-      window.removeEventListener('touchend', stop);
+      window.removeEventListener('touchend',  stop);
       persistPanelWidth();
     };
     window.addEventListener('mousemove', moveMouse);
-    window.addEventListener('mouseup', stop);
+    window.addEventListener('mouseup',   stop);
     window.addEventListener('touchmove', moveTouch, { passive: true });
-    window.addEventListener('touchend', stop);
+    window.addEventListener('touchend',  stop);
   };
-  handle.addEventListener('mousedown', e => { e.preventDefault(); start(e.clientX); });
+  handle.addEventListener('mousedown',  e => { e.preventDefault(); start(e.clientX); });
   handle.addEventListener('touchstart', e => start(e.touches[0].clientX), { passive: true });
 }
 
 function applyDesktopPanelWidth() {
   if (window.innerWidth < MOBILE_BREAKPOINT || state.ui.isMapHidden) return;
   const width = Math.max(DESKTOP_PANEL_MIN, state.ui.panelWidth || DESKTOP_PANEL_DEFAULT);
-  const panel = document.getElementById('side-panel');
+  const panel     = document.getElementById('side-panel');
   const appLayout = document.getElementById('app-layout');
-  panel?.style.setProperty('width', `${width}px`);
+  panel?.style.setProperty('width',     `${width}px`);
   panel?.style.setProperty('min-width', `${width}px`);
   if (appLayout) appLayout.style.gridTemplateColumns = `minmax(0, 1fr) ${width}px`;
 }
 
 function applyMapVisibility() {
   const appLayout = document.getElementById('app-layout');
-  const btn = document.getElementById('btn-side-panel-toggle');
+  const btn       = document.getElementById('btn-side-panel-toggle');
   const sidePanel = document.getElementById('side-panel');
   if (!appLayout || !btn || !sidePanel || window.innerWidth < MOBILE_BREAKPOINT) return;
   appLayout.classList.toggle('is-map-hidden', state.ui.isMapHidden);
   if (state.ui.isMapHidden) {
     appLayout.style.gridTemplateColumns = '0 minmax(0, 1fr)';
-    sidePanel.style.width = '100%';
+    sidePanel.style.width    = '100%';
     sidePanel.style.minWidth = '0';
     btn.textContent = '›';
   } else {
@@ -478,14 +484,18 @@ function flash(msg, duration = 5000, type = 'info') {
   if (!el) {
     el = document.createElement('div');
     el.id = 'flash-msg';
-    el.style.cssText = ['position:fixed','bottom:72px','left:50%','transform:translateX(-50%)','max-width:90vw','padding:8px 16px','border-radius:8px','font-size:13px','z-index:9999','pointer-events:none','transition:opacity .3s'].join(';');
+    el.style.cssText = [
+      'position:fixed', 'bottom:72px', 'left:50%', 'transform:translateX(-50%)',
+      'max-width:90vw', 'padding:8px 16px', 'border-radius:8px', 'font-size:13px',
+      'z-index:9999', 'pointer-events:none', 'transition:opacity .3s',
+    ].join(';');
     document.body.appendChild(el);
   }
-  el.textContent = msg;
-  el.style.background = type === 'error' ? '#c0392b' : '#2d2d2d';
-  el.style.color = '#fff';
-  el.style.opacity = '1';
-  el.style.display = 'block';
+  el.textContent       = msg;
+  el.style.background  = type === 'error' ? '#c0392b' : '#2d2d2d';
+  el.style.color       = '#fff';
+  el.style.opacity     = '1';
+  el.style.display     = 'block';
   clearTimeout(el._t);
   el._t = setTimeout(() => { el.style.opacity = '0'; }, duration);
 }
