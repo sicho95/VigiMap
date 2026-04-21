@@ -98,7 +98,7 @@
 /* Filtres : en bas, flex-grow pour prendre l'espace restant */
 .toolbar-row--filters {
   order: 1;
-  flex-grow: 1;
+  /*flex-grow: 1;*/ /*sinon ca garde l'espace a droite en poussant au maximum les boutons de nav a droite*/
   flex-wrap: nowrap;
   gap: 4px;
 }
