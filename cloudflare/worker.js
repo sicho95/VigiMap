@@ -1,16 +1,12 @@
 // ============================================================
-// PROXY UNIVERSEL SICHO95 v3.3
-// Basé sur v3.2 — structure et commentaires intégralement conservés.
-// Fix v3.3 (unique ajout) :
-//   - isSignedYouTubeHls() : détecte les URLs HLS signées YouTube
-//     (/api/manifest/hls_playlist, /api/manifest/hls_variant,
-//      /videoplayback...) et retourne un redirect 302 direct.
-//     Raison : YouTube encode l'IP du client dans la signature HMAC.
-//     Si le Worker fetchait lui-même ces URLs, YouTube recevrait
-//     l'IP Cloudflare ≠ IP cliente → 400. Avec le redirect, hls.js
-//     les charge directement depuis le browser, signature valide.
-// Extraction stream YouTube : stratégie hybride B+C inchangée.
-// Reste du proxy : ORS, Lufop, cache, CORS, etc. — inchangé.
+// PROXY UNIVERSEL SICHO95 v3.4
+// Basé sur v3.3.
+// Ajout v3.4 :
+//   - mode=browser / mode=asset pour DlStream ;
+//   - préserver les en-têtes et bodies utiles aux applications web ;
+//   - désactiver le cache CF des appels de navigation interactifs ;
+//   - ne plus appliquer STREAMING_BLOCK aux pages/assets chargés par DlStream.
+// Les routes historiques VigiMap et /extract-stream restent inchangées.
 // ============================================================
 
 // ─────────────────────────────────────────────────────────────
@@ -135,10 +131,10 @@ async function tryInnerTube(videoId) {
 //
 // Instances actives avec API publique (vérifié avril 2026)
 const INVIDIOUS_INSTANCES = [
-  'https://yewtu.be',             // 🇩🇪 la plus ancienne, très stable
-  'https://inv.thepixora.com',    // 🆕 nouvelle, API-ready (avril 2026)
-  'https://invidious.nerdvpn.de', // 🇺🇦 bonne disponibilité
-  'https://inv.nadeko.net',       // 🇨🇱 actif
+  'https://yewtu.be',
+  'https://inv.thepixora.com',
+  'https://invidious.nerdvpn.de',
+  'https://inv.nadeko.net',
 ];
 
 async function tryInvidious(videoId) {
@@ -155,11 +151,8 @@ async function tryInvidious(videoId) {
       const j = await r.json();
       if (!j || j.error) continue;
 
-      // Live stream → hlsUrl déjà proxiée par l'instance
       if (j?.hlsUrl) return { type: 'hls', url: j.hlsUrl, source: base };
 
-      // VOD : formatStreams = muxé audio+vidéo (mp4), jouable directement
-      // adaptiveFormats = vidéo seule (besoin MSE), en dernier recours
       const muxed    = (j?.formatStreams   || []).filter(f => f.url);
       const adaptive = (j?.adaptiveFormats || []).filter(f => f.url && f.type?.includes('video'));
 
@@ -171,14 +164,12 @@ async function tryInvidious(videoId) {
       if (best?.url) return { type: 'progressive', url: best.url, source: base };
 
     } catch (_) {
-      // Instance inaccessible ou timeout → on essaie la suivante
+      // Instance inaccessible ou timeout → essayer la suivante
     }
   }
   return null;
 }
 
-// ── Point d'entrée hybride ───────────────────────────────────
-// Chaîne : B (InnerTube) → C (Invidious) → erreur finale
 async function extractStreamUrl(originalUrl) {
   let hostname;
   try { hostname = new URL(originalUrl).hostname; } catch (_) {
@@ -192,11 +183,9 @@ async function extractStreamUrl(originalUrl) {
   const videoId = extractYouTubeVideoId(originalUrl);
   if (!videoId) return { ok: false, error: "Impossible d'extraire le videoId depuis l'URL YouTube" };
 
-  // Étape B
   const resultB = await tryInnerTube(videoId);
   if (resultB) return { ok: true, streamUrl: resultB.url, streamType: resultB.type, audioUrl: null, via: 'innertube' };
 
-  // Étape C
   const resultC = await tryInvidious(videoId);
   if (resultC) return { ok: true, streamUrl: resultC.url, streamType: resultC.type, audioUrl: null, via: resultC.source };
 
@@ -206,13 +195,6 @@ async function extractStreamUrl(originalUrl) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-// 🌐 ROUTE /extract-stream?url=
-// Réponse : { ok, originalUrl, streamUrl, streamType, audioUrl, via, cached }
-// via = "innertube" | "https://instance.invidious" | absent si erreur
-// Cache CF : 6h si succès (durée de vie des URLs googlevideo/Invidious)
-//            1 min si échec (pour ne pas spammer sur une vidéo bloquée)
-// ─────────────────────────────────────────────────────────────
 async function handleExtractStream(request, url, waitUntil) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: getCorsHeaders() });
@@ -228,14 +210,12 @@ async function handleExtractStream(request, url, waitUntil) {
 
   const originalUrl = decodeURIComponent(rawUrl);
 
-  // Clé de cache CF basée sur l'URL originale (base64 tronqué)
   const cacheKey = new Request(
     `https://vigimap-stream-cache.internal/${btoa(unescape(encodeURIComponent(originalUrl))).slice(0, 64)}`,
     { method: 'GET' }
   );
   const cache = caches.default;
 
-  // Retourne le cache si disponible
   const cached = await cache.match(cacheKey);
   if (cached) {
     const body = await cached.json();
@@ -244,7 +224,6 @@ async function handleExtractStream(request, url, waitUntil) {
     });
   }
 
-  // Extraction hybride B+C
   const result  = await extractStreamUrl(originalUrl);
   const payload = { ok: result.ok, originalUrl, ...result, cached: false };
 
@@ -256,17 +235,11 @@ async function handleExtractStream(request, url, waitUntil) {
     },
   });
 
-  // Mise en cache CF uniquement si succès
   if (result.ok) waitUntil(cache.put(cacheKey, resp.clone()));
-
   return resp;
 }
 
-// ─────────────────────────────────────────────────────────────
-// 🚫 HOSTS BLOQUÉS POUR LE PROXY DIRECT
-// Ces services retournent CAPTCHA/429 si fetchés directement.
-// → Rediriger vers /extract-stream pour YouTube
-// ─────────────────────────────────────────────────────────────
+// Services à ne pas utiliser comme proxy média direct hors mode navigateur DlStream.
 const STREAMING_BLOCK = [
   'youtube.com', 'youtu.be', 'ytimg.com',
   'twitch.tv', 'twitchsvc.net',
@@ -280,9 +253,6 @@ const STREAMING_BLOCK = [
   'kick.com',
 ];
 
-// ─────────────────────────────────────────────────────────────
-// 🎛 FETCH HANDLER PRINCIPAL
-// ─────────────────────────────────────────────────────────────
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event));
 });
@@ -291,19 +261,16 @@ async function handleRequest(event) {
   const waitUntil = p => event.waitUntil(p);
   const request   = event.request;
 
-  // 1. CORS PREFLIGHT
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: getCorsHeaders() });
   }
 
   const url = new URL(request.url);
 
-  // 2. ROUTE /extract-stream → extraction YouTube hybride B+C
   if (url.pathname === '/extract-stream' || url.pathname.endsWith('/extract-stream')) {
     return handleExtractStream(request, url, waitUntil);
   }
 
-  // 3. PROXY UNIVERSEL — paramètre ?url=
   let targetUrl = url.searchParams.get('url');
 
   if (!targetUrl) {
@@ -313,7 +280,6 @@ async function handleRequest(event) {
     });
   }
 
-  // Validation + décodage de l'URL cible
   let targetUrlObj;
   try {
     targetUrl    = decodeURIComponent(targetUrl);
@@ -325,17 +291,16 @@ async function handleRequest(event) {
     });
   }
 
-  // ── FIX v3.3 : URLs HLS signées YouTube → redirect 302 direct ──────────
-  // Le Worker NE DOIT PAS fetcher ces URLs (IP mismatch → 400 YouTube).
-  // On renvoie un redirect pour que hls.js les charge directement.
-  // CORS ok car la requête provient alors du browser lui-même.
+  const mode = String(url.searchParams.get('mode') || '').toLowerCase();
+  const browserMode = mode === 'browser' || mode === 'asset';
+
   if (isSignedYouTubeHls(targetUrlObj)) {
     return Response.redirect(targetUrl, 302);
   }
-  // ────────────────────────────────────────────────────────────────────────
 
-  // Bloquer les services de streaming → rediriger vers /extract-stream
-  if (STREAMING_BLOCK.some(h => targetUrlObj.hostname.includes(h))) {
+  // Conserver le blocage historique pour les usages API/média directs,
+  // mais autoriser une page ou un asset demandé explicitement par DlStream.
+  if (!browserMode && STREAMING_BLOCK.some(h => targetUrlObj.hostname.includes(h))) {
     return new Response(JSON.stringify({
       error:   'streaming_url_blocked',
       message: 'Cette URL est un service de streaming. Utilisez /extract-stream?url=... pour extraire le flux (hybride InnerTube + Invidious).',
@@ -348,18 +313,16 @@ async function handleRequest(event) {
 
   const hostname = targetUrlObj.hostname;
 
-  // 4. INJECTION CLÉS API PAR CIBLE
   if (hostname.includes('lufop.net')) {
     targetUrlObj.searchParams.set('key', KEYS.LUFOP);
   }
 
   const finalUrl = targetUrlObj.toString();
-
-  // 5. CACHE CF (GET uniquement)
   const cacheKey = new Request(finalUrl, request);
   const cache    = caches.default;
 
-  if (request.method === 'GET') {
+  // Une application web interactive ne doit jamais recevoir une ancienne réponse API du cache CF.
+  if (!browserMode && request.method === 'GET') {
     let response = await cache.match(cacheKey);
     if (response) {
       response = new Response(response.body, response);
@@ -369,11 +332,23 @@ async function handleRequest(event) {
     }
   }
 
-  // 6. HEADERS PAR CIBLE
   const proxyHeaders = new Headers();
 
-  if (hostname.includes('leboncoin.fr') || hostname.includes('bienici.com')) {
-    // Navigateur réaliste — tromper l'anti-bot
+  if (browserMode) {
+    // Reproduire les informations utiles d'une vraie navigation sans recopier les en-têtes hop-by-hop.
+    for (const name of ['Accept', 'Accept-Language', 'Content-Type', 'Range', 'If-None-Match', 'If-Modified-Since']) {
+      const value = request.headers.get(name);
+      if (value) proxyHeaders.set(name, value);
+    }
+
+    const userAgent = request.headers.get('User-Agent');
+    proxyHeaders.set('User-Agent', userAgent || 'Mozilla/5.0 AppleWebKit/605.1.15 Safari/605.1.15');
+
+    // Le code de la plateforme s'exécute derrière un reverse proxy : présenter l'origine cible à l'amont.
+    proxyHeaders.set('Origin', targetUrlObj.origin);
+    proxyHeaders.set('Referer', `${targetUrlObj.origin}/`);
+
+  } else if (hostname.includes('leboncoin.fr') || hostname.includes('bienici.com')) {
     proxyHeaders.set('User-Agent',                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
     proxyHeaders.set('Accept',                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
     proxyHeaders.set('Accept-Language',           'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7');
@@ -389,59 +364,49 @@ async function handleRequest(event) {
     proxyHeaders.set('Dnt',                       '1');
 
   } else if (hostname.includes('models.inference.ai.azure.com')) {
-    // GitHub Models — transfert direct du token Authorization du client
     const clientAuth = request.headers.get('Authorization');
     if (clientAuth) proxyHeaders.set('Authorization', clientAuth);
     proxyHeaders.set('Content-Type', 'application/json');
     proxyHeaders.set('Accept',       'application/json');
 
   } else if (hostname.includes('openrouteservice.org')) {
-    // ORS — injection clé JWT stockée dans KEYS
     proxyHeaders.set('Authorization', KEYS.ORS);
     proxyHeaders.set('Accept',        'application/json, application/geo+json, application/gpx+xml, img/png;q=0.1');
     proxyHeaders.set('Content-Type',  'application/json');
 
   } else if (hostname.includes('insecam.org')) {
-    // Insecam — Referer obligatoire sinon 403
     proxyHeaders.set('User-Agent',     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
     proxyHeaders.set('Referer',        'https://www.insecam.org/');
     proxyHeaders.set('Accept',         'text/html,application/xhtml+xml,*/*;q=0.8');
     proxyHeaders.set('Accept-Language','en-US,en;q=0.9');
 
   } else if (hostname.includes('511') || hostname.includes('road511') || hostname.includes('cotrip') || hostname.includes('cwwp2')) {
-    // Portails 511 USA — JSON ou XML selon endpoint
     proxyHeaders.set('User-Agent',      'Mozilla/5.0 (Compatible; VigiMap/2.0)');
     proxyHeaders.set('Accept',          'application/json, application/xml, */*');
     proxyHeaders.set('Accept-Language', 'en-US,en;q=0.9');
 
   } else if (hostname.includes('windy.com') || hostname.includes('api.windy.com')) {
-    // Windy API
     proxyHeaders.set('User-Agent',   'Mozilla/5.0 (Compatible; VigiMap/2.0)');
     proxyHeaders.set('Accept',       'application/json');
     proxyHeaders.set('Content-Type', 'application/json');
 
   } else if (hostname.includes('overpass-api.de') || hostname.includes('overpass.kumi.systems')) {
-    // OSM Overpass — requêtes POST avec body Overpass QL
     proxyHeaders.set('User-Agent', 'VigiMap/2.0 (https://github.com/sicho95/VigiMap)');
     proxyHeaders.set('Accept',     'application/json');
 
   } else if (hostname.includes('traffic.data.gov.sg') || hostname.includes('lta.gov.sg')) {
-    // LTA Singapore
     proxyHeaders.set('User-Agent', 'Mozilla/5.0 (Compatible; VigiMap/2.0)');
     proxyHeaders.set('Accept',     'application/json');
 
   } else if (hostname.includes('opentraffic') || hostname.includes('streetwatch')) {
-    // Sources OpenTraffic génériques
     proxyHeaders.set('User-Agent', 'Mozilla/5.0 (Compatible; VigiMap/2.0)');
     proxyHeaders.set('Accept',     'application/json, text/plain, */*');
 
   } else {
-    // Défaut standard (Lufop, IGN, etc.)
     proxyHeaders.set('User-Agent', 'Mozilla/5.0 (Compatible; SichoProxy/6.0)');
     proxyHeaders.set('Accept',     '*/*');
   }
 
-  // 7. EXÉCUTION REQUÊTE PROXY
   try {
     const fetchOptions = {
       method:   request.method,
@@ -449,14 +414,15 @@ async function handleRequest(event) {
       redirect: 'follow',
     };
 
-    if (['POST', 'PUT'].includes(request.method)) {
-      fetchOptions.body = await request.text();
+    // Préserver les octets du body et tous les verbes susceptibles d'en porter un.
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      const body = await request.arrayBuffer();
+      if (body.byteLength) fetchOptions.body = body;
     }
 
     const response = await fetch(finalUrl, fetchOptions);
     const buffer   = await response.arrayBuffer();
 
-    // 8. CONSTRUCTION RÉPONSE
     const responseHeaders = new Headers(getCorsHeaders());
 
     let contentType = response.headers.get('Content-Type') || 'application/json';
@@ -464,9 +430,15 @@ async function handleRequest(event) {
       contentType += '; charset=utf-8';
     }
 
-    responseHeaders.set('Content-Type',  contentType);
-    responseHeaders.set('Cache-Control', `public, max-age=${getCacheTtl(hostname)}`);
-    responseHeaders.set('X-Proxy-Cache', 'MISS');
+    responseHeaders.set('Content-Type', contentType);
+    responseHeaders.set('Cache-Control', browserMode ? 'no-store' : `public, max-age=${getCacheTtl(hostname)}`);
+    responseHeaders.set('X-Proxy-Cache', browserMode ? 'BYPASS' : 'MISS');
+    responseHeaders.set('X-DlStream-Target', finalUrl);
+
+    for (const name of ['ETag', 'Last-Modified', 'Accept-Ranges', 'Content-Range']) {
+      const value = response.headers.get(name);
+      if (value) responseHeaders.set(name, value);
+    }
 
     const proxyResponse = new Response(buffer, {
       status:     response.status,
@@ -474,8 +446,7 @@ async function handleRequest(event) {
       headers:    responseHeaders,
     });
 
-    // Mise en cache CF si succès + GET
-    if (response.ok && request.method === 'GET') {
+    if (!browserMode && response.ok && request.method === 'GET') {
       event.waitUntil(cache.put(cacheKey, proxyResponse.clone()));
     }
 
@@ -489,20 +460,19 @@ async function handleRequest(event) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// 🔧 HELPERS CORS
-// ─────────────────────────────────────────────────────────────
 function getCorsHeaders() {
   return {
     'Access-Control-Allow-Origin':  '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Range, If-None-Match, If-Modified-Since',
+    'Access-Control-Expose-Headers':'Content-Type, ETag, Last-Modified, Accept-Ranges, Content-Range, X-Proxy-Cache, X-DlStream-Target',
     'Access-Control-Max-Age':       '86400',
   };
 }
 
 function injectCors(headers) {
   headers.set('Access-Control-Allow-Origin',  '*');
-  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Range, If-None-Match, If-Modified-Since');
+  headers.set('Access-Control-Expose-Headers','Content-Type, ETag, Last-Modified, Accept-Ranges, Content-Range, X-Proxy-Cache, X-DlStream-Target');
 }
